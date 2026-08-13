@@ -27,7 +27,9 @@
 - Stability: rerun with different random seeds or data samples. Similar activations should remain grouped.
 - Cluster usage: size histogram; dead clusters + effective code count (usage perplexity)
 - Read the clusters: top tokens + contexts for 20 random clusters. Grab-bags = good KL but useless visualization
+- Use the articles by category and see if there's some meaningful correlation for validation.
+- Build the k × k matrix of how often cluster i is followed by cluster j (free — you already have the label array with document structure preserved) d
 
 ## Inference
 
-- Interface should take a prompt as input -> token IDs -> motion visualization 
+- Interface should take a prompt as input -> token IDs -> motion visualization in a 2D grid.
