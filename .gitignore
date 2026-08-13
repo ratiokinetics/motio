@@ -180,5 +180,6 @@ cython_debug/
 .cursorignore
 .cursorindexingignore
 
-#
+# artifacts
 tokenized.jsonl
+activations.npy
