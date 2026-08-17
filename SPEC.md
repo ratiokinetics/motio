@@ -19,15 +19,13 @@
 
 **Fit**
 - k-means (torch/MPS, ~40 lines, no new deps) on a 1-2M subsample, random over docs *and* positions
-- Sweep $k \in \{256, 1024, 4096\}$
-- Assign all 6M in one batched pass -> `labels.npy` `(11810, 512)` int16, ~12 MB
-- For each k try different seeds
+- Sweep $k$ and seeds
 
 **Eval**
 
 - Plot inertia for different k, seeds and preprocessing combinations
 - Cluster usage: size histogram;
-- Precision loss (primary): patch centroids back at layer $\ell$ (positions $\ge 1$ only), measure $\mathrm{KL}$ vs original output distribution. Consider as baselines: a) no patch (KL=0) and b) global mean (k=1)
+- Precision loss (primary): patch centroids back at layer $\ell$ (positions $\ge 1$ only), measure $\mathrm{KL}$ vs original output distribution. Consider as baselines: a. no patch (KL=0) and b. global mean (k=1)
 
 ## Lang
 

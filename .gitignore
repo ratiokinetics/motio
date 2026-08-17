@@ -183,3 +183,4 @@ cython_debug/
 # artifacts
 tokenized.jsonl
 activations.npy
+/data
