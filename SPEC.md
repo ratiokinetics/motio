@@ -15,21 +15,22 @@
 **Preprocess** 
 - Drop token at position 0
 - Center on the mean of the remaining vectors. Store $\mu$ to keep the transform invertible
+- L2 Normalization
 
 **Fit**
 - k-means (torch/MPS, ~40 lines, no new deps) on a 1-2M subsample, random over docs *and* positions
 - Sweep $k \in \{256, 1024, 4096\}$
 - Assign all 6M in one batched pass -> `labels.npy` `(11810, 512)` int16, ~12 MB
+- For each k try different seeds
 
 **Eval**
 
-- Precision loss (primary): patch centroids back at layer $\ell$ (positions $\ge 1$ only), measure $\mathrm{KL}$ vs original output distribution + loss delta. Baselines: $k=1$ (global mean) = ceiling, random centroid = floor
-- Stability: rerun with different random seeds or data samples. Similar activations should remain grouped.
-- Cluster usage: size histogram; dead clusters + effective code count (usage perplexity)
-- Read the clusters: top tokens + contexts for 20 random clusters. Grab-bags = good KL but useless visualization
-- Use the articles by category and see if there's some meaningful correlation for validation.
-- Build the k × k matrix of how often cluster i is followed by cluster j (free — you already have the label array with document structure preserved) d
+- Plot inertia for different k, seeds and preprocessing combinations
+- Cluster usage: size histogram;
+- Precision loss (primary): patch centroids back at layer $\ell$ (positions $\ge 1$ only), measure $\mathrm{KL}$ vs original output distribution. Consider as baselines: a) no patch (KL=0) and b) global mean (k=1)
 
-## Inference
+## Lang
 
-- Interface should take a prompt as input -> token IDs -> motion visualization in a 2D grid.
+- (inference) Interface should take a prompt as input -> token IDs -> motion visualization in a 2D grid.
+- 1st Eval: build the k × k matrix heatmap of how often cluster i is followed by cluster j.
+- 2nd Eval: simple semantic or synactic combos
