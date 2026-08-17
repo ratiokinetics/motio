@@ -25,7 +25,8 @@
 
 - Plot inertia for different k, seeds and preprocessing combinations
 - Cluster usage: size histogram;
-- Precision loss (primary): patch centroids back at layer $\ell$ (positions $\ge 1$ only), measure $\mathrm{KL}$ vs original output distribution. Consider as baselines: a. no patch (KL=0) and b. global mean (k=1)
+- Loss in output distribution: patch centroids back at layer $\ell$ (positions $\ge 1$ only), measure $\mathrm{KL}$ vs original output distribution. Consider as baselines: a. no patch and b. global mean (k=1)
+- Manual test via patching
 
 ## Lang
 

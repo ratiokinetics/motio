@@ -47,6 +47,13 @@ def kmeans(x, k, seed, iters=50, chunk=65_536, tol=1e-4):
     return C, inertia
 
 
+def assign(acts, C, mu):
+    """Nearest-centroid assignment. acts: raw (..., d) -> labels (...)."""
+    x = preprocess(acts, mu)
+    C = torch.as_tensor(C, dtype=torch.float32, device=DEVICE)
+    labels = (x @ C.T - (C * C).sum(1) / 2).argmax(-1)
+    return labels
+
 def train():
     # 1. Preprocess the activations
     acts = np.load("activations.npy", mmap_mode="r")[:, 1:]  # drop pos 0;
@@ -68,16 +75,35 @@ def train():
             np.savez(out, k=k, seed=seed, centroids=C.cpu().numpy(), inertia=inertia)
             print(f"k={k} seed={seed} centroids: {C.shape} inertia: {inertia:.1f} -> {out}")
 
-
 def evaluate(run_dir: Path):
     assert run_dir.is_dir(), f"not a directory: {run_dir}"
     runs = [np.load(f) for f in sorted(run_dir.glob("kmeans_k*_seed*.npz"))]
+
+    # 1. Plot the inertia vs k     
     ks = sorted({int(r["k"]) for r in runs})
     plt.scatter([int(r["k"]) for r in runs], [float(r["inertia"]) for r in runs], alpha=0.5, label="seeds")
     plt.plot(ks, [min(float(r["inertia"]) for r in runs if int(r["k"]) == k) for k in ks], "o-", label="best seed")
     plt.xscale("log", base=2), plt.xticks(ks, ks)
     plt.xlabel("k"), plt.ylabel("inertia"), plt.title(run_dir.name), plt.legend()
     plt.savefig(run_dir / "elbow.png", dpi=150)
+
+    x_test = sample(acts, 100_000, np.random.default_rng(42))
+
+    # 2. Get cluster usage histogram
+    acts = np.load("activations.npy", mmap_mode="r")[:, 1:]  # drop pos 0
+    mu = np.load(run_dir / "mu.npy")
+    seeds = sorted({int(r["seed"]) for r in runs})
+    fig, axes = plt.subplots(len(ks), len(seeds), figsize=(3 * len(seeds), 2 * len(ks)), sharey="row", squeeze=False)
+    for r in runs:
+        k, seed = int(r["k"]), int(r["seed"])
+        counts = np.bincount(assign(x_test, r["centroids"], mu).cpu().numpy(), minlength=k)
+        ax = axes[ks.index(k), seeds.index(seed)]
+        ax.bar(range(k), np.sort(counts)[::-1])
+        ax.set_title(f"k={k} seed={seed}", fontsize=8)
+    fig.tight_layout()
+    fig.savefig(run_dir / "usage.png", dpi=150)
+
+    # 3. KL measurement
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
