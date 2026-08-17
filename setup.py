@@ -1,9 +1,8 @@
 from datasets import load_dataset
-from transformers import GPT2TokenizerFast
+from transformers import GPT2TokenizerFast, GPT2Model
 from pathlib import Path
 import torch
 import numpy as np
-from transformers import GPT2Model
 
 tokenizer = GPT2TokenizerFast.from_pretrained("gpt2")
 # 1. Load and process the dataset
