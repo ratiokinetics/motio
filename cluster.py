@@ -12,6 +12,7 @@ import torch.nn.functional as F
 DEVICE = "mps" if torch.backends.mps.is_available() else "cpu"
 TRAIN_SAMPLE = 1_000_000
 TEST_SAMPLE = 100
+KL_BATCH_SIZE = 64
 K_LIST = [8, 16, 32]
 SEED_LIST = [0, 1, 2, 3]
 
@@ -67,13 +68,15 @@ def assign(acts, C, mu):
     C = torch.as_tensor(C, dtype=torch.float32, device=DEVICE)
     return get_labels(x, C)
 
+@torch.no_grad()
+def predict(ids, model):
+    h = model.transformer(torch.as_tensor(ids, device=DEVICE)).last_hidden_state[:, -1]
+    return model.lm_head(h).softmax(-1)
+
 def patch(ids, C, mu, model):
-    """Return normal and centroid-patched next-token distributions."""
-    N_LAYERS = model.config.n_layer  # 12 for gpt2
-    LAYER = N_LAYERS * 2 // 3
+    """Return centroid-patched next-token distributions."""
     mu = torch.as_tensor(mu, dtype=torch.float32, device=DEVICE)
     C = torch.as_tensor(C, dtype=torch.float32, device=DEVICE)
-    ids = torch.as_tensor(ids, device=DEVICE)[None]  # (1, T)
 
     def hook(_, __, out):  # snap residual stream (pos >= 1) to nearest centroid, map back via saved norm + mu
         h = out.clone()
@@ -81,14 +84,11 @@ def patch(ids, C, mu, model):
         h[:, 1:] = preprocess_inv(C[get_labels(xp, C)], n, mu)
         return h
 
-    with torch.no_grad():
-        p = model(ids).logits[0, -1].softmax(-1)
-        handle = model.transformer.h[LAYER - 1].register_forward_hook(hook)
-        try:
-            q = model(ids).logits[0, -1].softmax(-1)
-        finally:
-            handle.remove()
-    return p, q
+    handle = model.transformer.h[model.config.n_layer * 2 // 3 - 1].register_forward_hook(hook)
+    try:
+        return predict(ids, model)
+    finally:
+        handle.remove()
 
 def train():
     # 1. Preprocess the activations
@@ -144,19 +144,22 @@ def evaluate(run_dir: Path):
 
     model = GPT2LMHeadModel.from_pretrained("gpt2").eval().to(DEVICE)
 
-    for r in runs:
-        kls = []
-        for d, p in zip(doc, pos):
-            ids = docs[int(d)][:int(p) + 2]
-            original, patched = patch(ids, r["centroids"], mu, model)
-            kl = F.kl_div(
-                patched.clamp_min(1e-12).log(),
-                original,
-                reduction="sum",
-            )
-            kls.append(kl.item())
+    kl_sums = np.zeros(len(runs))
+    for p in np.unique(pos):
+        group = doc[pos == p]
+        for i in range(0, len(group), KL_BATCH_SIZE):
+            ids = [docs[int(d)][:int(p) + 2] for d in group[i:i + KL_BATCH_SIZE]]
+            original = predict(ids, model)
+            for j, r in enumerate(runs):
+                patched = patch(ids, r["centroids"], mu, model)
+                kl_sums[j] += F.kl_div(
+                    patched.clamp_min(1e-12).log(),
+                    original,
+                    reduction="none",
+                ).sum().item()
 
-        print(f"k={r['k']} seed={r['seed']} KL={np.mean(kls):.6f}")
+    for r, kl_sum in zip(runs, kl_sums):
+        print(f"k={r['k']} seed={r['seed']} KL={kl_sum / len(doc):.6f}")
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
