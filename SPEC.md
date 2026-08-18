@@ -30,6 +30,5 @@
 
 ## Lang
 
-- (inference) Interface should take a prompt as input -> token IDs -> motion visualization in a 2D grid.
+- (inference - viz) Interface should take a prompt as input -> token IDs -> motion visualization in a 2D grid.
 - 1st Eval: build the k × k matrix heatmap of how often cluster i is followed by cluster j.
-- 2nd Eval: simple semantic or synactic combos

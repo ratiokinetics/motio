@@ -11,9 +11,9 @@ import torch.nn.functional as F
 
 DEVICE = "mps" if torch.backends.mps.is_available() else "cpu"
 TRAIN_SAMPLE = 1_000_000
-TEST_SAMPLE = 100
+TEST_SAMPLE = 10_000
 KL_BATCH_SIZE = 64
-K_LIST = [8, 16, 32]
+K_LIST = [256, 512, 1024, 2048, 4096, 8192]
 SEED_LIST = [0, 1, 2, 3]
 
 def sample(acts, n, rng):
@@ -117,6 +117,7 @@ def evaluate(run_dir: Path):
     
     # 1. Plot the inertia vs k     
     ks = sorted({int(r["k"]) for r in runs})
+    elbow_data = [{"k": int(r["k"]), "seed": int(r["seed"]), "inertia": float(r["inertia"])} for r in runs]
     plt.scatter([int(r["k"]) for r in runs], [float(r["inertia"]) for r in runs], alpha=0.5, label="seeds")
     plt.plot(ks, [min(float(r["inertia"]) for r in runs if int(r["k"]) == k) for k in ks], "o-", label="best seed")
     plt.xscale("log", base=2), plt.xticks(ks, ks)
@@ -138,7 +139,11 @@ def evaluate(run_dir: Path):
     fig.tight_layout()
     fig.savefig(run_dir / "usage.png", dpi=150)
 
-    # 3. KL measurement
+    # 3. KL measurement (+ k=1 baseline: Lloyd's k=1 fixed point is the mean of the preprocessed train sample)
+    x_train, _, _ = sample(acts, TRAIN_SAMPLE, np.random.default_rng(0))
+    runs.append({"k": 1, "seed": 0, "centroids": preprocess(x_train, mu)[0].mean(0, keepdim=True).cpu().numpy()})
+    del x_train
+
     with open("tokenized.jsonl") as f:
         docs = [json.loads(line)["ids"] for line in f]
 
@@ -158,8 +163,17 @@ def evaluate(run_dir: Path):
                     reduction="none",
                 ).sum().item()
 
-    for r, kl_sum in zip(runs, kl_sums):
-        print(f"k={r['k']} seed={r['seed']} KL={kl_sum / len(doc):.6f}")
+    kls = kl_sums / len(doc)
+    kl_data = [{"k": int(r["k"]), "seed": int(r["seed"]), "kl": float(v)} for r, v in zip(runs, kls)]
+    (run_dir / "eval.json").write_text(json.dumps({"elbow": elbow_data, "kl": kl_data}, indent=2))
+
+    plt.figure()
+    ks = sorted({int(r["k"]) for r in runs})
+    plt.scatter([int(r["k"]) for r in runs], kls, alpha=0.5, label="seeds")
+    plt.plot(ks, [min(kl for r, kl in zip(runs, kls) if int(r["k"]) == k) for k in ks], "o-", label="best seed")
+    plt.xscale("log", base=2), plt.xticks(ks, ks)
+    plt.xlabel("k"), plt.ylabel("KL"), plt.title(run_dir.name), plt.legend()
+    plt.savefig(run_dir / "kl.png", dpi=150)
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
