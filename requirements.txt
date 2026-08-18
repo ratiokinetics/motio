@@ -2,4 +2,4 @@ datasets
 transformers
 torch
 numpy
-matplotlib
+scikit-learn

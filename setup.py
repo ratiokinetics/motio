@@ -4,7 +4,9 @@ from pathlib import Path
 import torch
 import numpy as np
 
+
 tokenizer = GPT2TokenizerFast.from_pretrained("gpt2")
+
 # 1. Load and process the dataset
 wiki = load_dataset("wikimedia/wikipedia", "20231101.en", split="train[:20000]")
 
