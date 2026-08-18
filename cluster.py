@@ -5,8 +5,8 @@ from sklearn.cluster import KMeans
 
 TRAIN_SAMPLE = 1_000_000
 N_INIT = 9  # k-means++ restarts per fit, best kept by inertia
-START_LAYER_DEPTH = 6
-END_LAYER_DEPTH = 12
+START_LEVEL_DEPTH = 6
+END_LEVEL_DEPTH = 12
 
 def sample(acts, n, rng):
     """Draw n random rows from a (docs, pos, d) memmap -> (n, d) float32."""
@@ -48,13 +48,13 @@ def train():
     out_dir.mkdir(parents=True)
     np.save(out_dir / "mu.npy", mu)
 
-    # --- flat start at k=2**START_LAYER_DEPTH ---
-    C, labels, inertia = fit(xp, 2**START_LAYER_DEPTH)
-    nodes = [np.flatnonzero(labels == i) for i in range(2**START_LAYER_DEPTH)]
-    save_depth(out_dir, START_LAYER_DEPTH, C, nodes, inertia)
+    # --- flat start at k=2**START_LEVEL_DEPTH ---
+    C, labels, inertia = fit(xp, 2**START_LEVEL_DEPTH)
+    nodes = [np.flatnonzero(labels == i) for i in range(2**START_LEVEL_DEPTH)]
+    save_depth(out_dir, START_LEVEL_DEPTH, C, nodes, inertia)
 
     # --- binary recursion: each leaf -> 2 children ---
-    for depth in range(START_LAYER_DEPTH + 1, END_LAYER_DEPTH + 1):
+    for depth in range(START_LEVEL_DEPTH + 1, END_LEVEL_DEPTH + 1):
         children, depth_centroids, depth_inertia = [], [], 0.0
         for idxs in nodes:
             if len(idxs) < 2:  # unsplittable leaf: carry through unchanged (singleton inertia = 0)
