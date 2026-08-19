@@ -40,3 +40,13 @@ python -m http.server
 ```
 
 Open http://localhost:8000/interface.html and enter a sequence of cluster codes (6–10 bits each, space separated). Shorter codes prefix-match deeper clusters; matching tokens are highlighted in the decoded text.
+
+### TODO
+
+- Scale: bigger model and SAE dataset
+- Account for dead branches in interface
+- Attach Activation verbalizer
+- Add matrix heatmap to show interesting and recurring patterns
+- Graphic step to display a sentence
+- Score to measure how close to cluster some sequence is
+- Allow to user enter to enter a sentence 

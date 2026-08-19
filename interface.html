@@ -26,6 +26,7 @@
   .card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:14px 18px; margin:14px 0 }
   .card .head { display:flex; flex-wrap:wrap; gap:6px 16px; font-size:12.5px; color:var(--dim); margin-bottom:8px }
   .card .head .codes { color:var(--accent2) }
+  .card .head .codes b { color:#fff }
   .card .head .toggle { margin-left:auto; color:var(--accent); cursor:pointer; user-select:none }
   .card .head .toggle:hover { text-decoration:underline }
   .txt { white-space:pre-wrap; word-break:break-word; font-size:14.5px; color:#c7cdd8 }
@@ -46,7 +47,7 @@
 </div>
 <script>
 const START_LEVEL_DEPTH = 6, DEPTH = 10, SEQ_LEN = 512, CTX = 25, MAX_RENDER = 200, NULLC = 0xffff;
-let N = 0, CODES, IDS, DOCIDS, VOCAB;
+let N = 0, CODES, IDS, VOCAB;
 const $ = id => document.getElementById(id);
 
 // GPT-2 byte-level BPE: unicode char -> original byte
@@ -107,17 +108,16 @@ async function loadLines(url, onLine, onProgress) {
 }
 
 async function loadAll() {
-  const codeRows = [], idRows = [], docIds = [];
+  const codeRows = [], idRows = [];
   await Promise.all([
     fetch('vocab.json').then(r => { if (!r.ok) throw new Error('vocab.json: HTTP ' + r.status); return r.json(); })
       .then(v => { VOCAB = []; for (const t in v) VOCAB[v[t]] = t; progressRow('vocab.json')(1, 1); }),
-    loadLines('tokenized.jsonl', l => { const o = JSON.parse(l); idRows.push(o.ids); docIds.push(o.doc_id ?? -1); }, progressRow('tokenized.jsonl')),
+    loadLines('tokenized.jsonl', l => idRows.push(JSON.parse(l).ids), progressRow('tokenized.jsonl')),
     loadLines('assigned.jsonl', l => codeRows.push(JSON.parse(l).cluster_ids), progressRow('assigned.jsonl')),
   ]);
   N = Math.min(codeRows.length, idRows.length);
   CODES = new Uint16Array(N * SEQ_LEN);
   IDS = new Uint16Array(N * SEQ_LEN);
-  DOCIDS = Int32Array.from(docIds);
   for (let d = 0; d < N; d++) {
     const cs = codeRows[d], ts = idRows[d], base = d * SEQ_LEN;
     for (let p = 0; p < SEQ_LEN; p++) {
@@ -159,15 +159,20 @@ function search(q) {
 
 const fullCode = (d, p) => CODES[d * SEQ_LEN + p].toString(2).padStart(DEPTH, '0');
 
-function renderHit(d, p, m) {
-  const toks = decodeDoc(d);
+function renderHit(d, p, q) {
+  const m = q.length, toks = decodeDoc(d);
   const card = document.createElement('div');
   card.className = 'card';
   const head = document.createElement('div');
   head.className = 'head';
-  const wiki = DOCIDS[d] >= 0 ? ` · wiki #${DOCIDS[d]}` : '';
-  head.innerHTML = `<span>doc ${d}${wiki} · pos ${p}</span><span class="codes mono"></span><a class="toggle">expand</a>`;
-  head.querySelector('.codes').textContent = Array.from({ length: m }, (_, j) => fullCode(d, p + j)).join(' ');
+  head.innerHTML = `<span>doc ${d} · pos ${p}</span><span class="codes mono"></span><a class="toggle">expand</a>`;
+  const codes = head.querySelector('.codes');
+  q.forEach((c, j) => {
+    const full = fullCode(d, p + j), len = DEPTH - c.shift;
+    const b = document.createElement('b');
+    b.textContent = full.slice(0, len);
+    codes.append(b, full.slice(len) + (j < m - 1 ? ' ' : ''));
+  });
   const txt = document.createElement('div');
   txt.className = 'txt';
   const fill = (from, to) => {
@@ -205,7 +210,7 @@ function run() {
   const hits = search(q);
   const docs = new Set(hits.map(h => h[0]));
   status.textContent = `${hits.length.toLocaleString()} matches in ${docs.size.toLocaleString()} docs · ${(performance.now() - t0).toFixed(0)} ms`;
-  for (const [d, p] of hits.slice(0, MAX_RENDER)) out.appendChild(renderHit(d, p, q.length));
+  for (const [d, p] of hits.slice(0, MAX_RENDER)) out.appendChild(renderHit(d, p, q));
   if (hits.length > MAX_RENDER) {
     const more = document.createElement('div');
     more.className = 'more';
