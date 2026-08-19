@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>motio · motion lang explorer</title>
+<style>
+  :root { --bg:#0b0d10; --card:#14171c; --border:#232830; --text:#e6e9ef; --dim:#8b93a1; --accent:#7c5cff; --accent2:#00d4ff; }
+  * { box-sizing:border-box }
+  body { margin:0; background:var(--bg); color:var(--text); font:15px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif }
+  .wrap { max-width:880px; margin:0 auto; padding:44px 20px 90px }
+  h1 { font-size:21px; margin:0 0 20px; letter-spacing:.3px }
+  h1 b { background:linear-gradient(90deg,var(--accent),var(--accent2)); -webkit-background-clip:text; background-clip:text; color:transparent }
+  code, .mono { font-family:ui-monospace,"SF Mono",Menlo,monospace }
+  .bar { display:flex; gap:10px }
+  input#q { flex:1; background:var(--card); border:1px solid var(--border); border-radius:10px; padding:13px 16px; color:var(--text); font:15px ui-monospace,Menlo,monospace; outline:none; letter-spacing:1px }
+  input#q:focus { border-color:var(--accent) }
+  button { background:linear-gradient(135deg,var(--accent),var(--accent2)); border:0; border-radius:10px; padding:0 22px; color:#fff; font-weight:600; font-size:14px; cursor:pointer }
+  button:disabled { filter:grayscale(1); opacity:.5; cursor:default }
+  #status { margin:14px 2px; color:var(--dim); font-size:13px; min-height:18px }
+  #status.err { color:#ff7b7b }
+  .load { display:flex; align-items:center; gap:10px; margin:6px 2px; font-size:12.5px; color:var(--dim) }
+  .load .track { flex:1; height:4px; background:var(--card); border-radius:2px; overflow:hidden }
+  .load .fill { height:100%; width:0; background:linear-gradient(90deg,var(--accent),var(--accent2)) }
+  .load .name { width:130px }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:14px 18px; margin:14px 0 }
+  .card .head { display:flex; flex-wrap:wrap; gap:6px 16px; font-size:12.5px; color:var(--dim); margin-bottom:8px }
+  .card .head .codes { color:var(--accent2) }
+  .card .head .toggle { margin-left:auto; color:var(--accent); cursor:pointer; user-select:none }
+  .card .head .toggle:hover { text-decoration:underline }
+  .txt { white-space:pre-wrap; word-break:break-word; font-size:14.5px; color:#c7cdd8 }
+  .txt mark { background:rgba(124,92,255,.28); color:#fff; border-bottom:2px solid var(--accent2); border-radius:3px; padding:1px 1px; margin:0 1px }
+  .more { text-align:center; color:var(--dim); font-size:13px; margin-top:18px }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1><b>motio</b></h1>
+  <div class="bar">
+    <input id="q" placeholder="e.g. 010110 0010000101" disabled>
+    <button id="go" disabled>Search</button>
+  </div>
+  <div id="status">loading…</div>
+  <div id="loaders"></div>
+  <div id="out"></div>
+</div>
+<script>
+const START_LEVEL_DEPTH = 6, DEPTH = 10, SEQ_LEN = 512, CTX = 25, MAX_RENDER = 200, NULLC = 0xffff;
+let N = 0, CODES, IDS, DOCIDS, VOCAB;
+const $ = id => document.getElementById(id);
+
+// GPT-2 byte-level BPE: unicode char -> original byte
+const B2U = (() => {
+  const bs = [];
+  for (let b = 33; b <= 126; b++) bs.push(b);
+  for (let b = 161; b <= 172; b++) bs.push(b);
+  for (let b = 174; b <= 255; b++) bs.push(b);
+  const cs = bs.slice();
+  let n = 0;
+  for (let b = 0; b < 256; b++) if (!bs.includes(b)) { bs.push(b); cs.push(256 + n++); }
+  const m = {};
+  bs.forEach((b, i) => m[String.fromCodePoint(cs[i])] = b);
+  return m;
+})();
+
+const decCache = new Map();
+function decodeDoc(d) {  // -> array of SEQ_LEN per-token strings
+  if (decCache.has(d)) return decCache.get(d);
+  const td = new TextDecoder(), out = new Array(SEQ_LEN), base = d * SEQ_LEN;
+  for (let p = 0; p < SEQ_LEN; p++) {
+    const s = VOCAB[IDS[base + p]] || '';
+    const bytes = new Uint8Array(s.length);
+    for (let i = 0; i < s.length; i++) bytes[i] = B2U[s[i]];
+    out[p] = td.decode(bytes, { stream: true });  // multi-byte chars may span tokens
+  }
+  decCache.set(d, out);
+  return out;
+}
+
+function progressRow(name) {
+  const row = document.createElement('div');
+  row.className = 'load';
+  row.innerHTML = `<span class="name mono">${name}</span><div class="track"><div class="fill"></div></div><span class="mb"></span>`;
+  $('loaders').appendChild(row);
+  return (loaded, total) => {
+    row.querySelector('.fill').style.width = total ? (100 * loaded / total) + '%' : '50%';
+    row.querySelector('.mb').textContent = (loaded / 1048576).toFixed(0) + ' MB';
+  };
+}
+
+async function loadLines(url, onLine, onProgress) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`${url}: HTTP ${res.status}`);
+  const total = +res.headers.get('content-length') || 0;
+  const reader = res.body.getReader(), td = new TextDecoder();
+  let buf = '', loaded = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    loaded += value.length;
+    buf += td.decode(value, { stream: true });
+    let i;
+    while ((i = buf.indexOf('\n')) >= 0) { const l = buf.slice(0, i); buf = buf.slice(i + 1); if (l.trim()) onLine(l); }
+    onProgress(loaded, total);
+  }
+  if ((buf += td.decode()).trim()) onLine(buf);
+}
+
+async function loadAll() {
+  const codeRows = [], idRows = [], docIds = [];
+  await Promise.all([
+    fetch('vocab.json').then(r => { if (!r.ok) throw new Error('vocab.json: HTTP ' + r.status); return r.json(); })
+      .then(v => { VOCAB = []; for (const t in v) VOCAB[v[t]] = t; progressRow('vocab.json')(1, 1); }),
+    loadLines('tokenized.jsonl', l => { const o = JSON.parse(l); idRows.push(o.ids); docIds.push(o.doc_id ?? -1); }, progressRow('tokenized.jsonl')),
+    loadLines('assigned.jsonl', l => codeRows.push(JSON.parse(l).cluster_ids), progressRow('assigned.jsonl')),
+  ]);
+  N = Math.min(codeRows.length, idRows.length);
+  CODES = new Uint16Array(N * SEQ_LEN);
+  IDS = new Uint16Array(N * SEQ_LEN);
+  DOCIDS = Int32Array.from(docIds);
+  for (let d = 0; d < N; d++) {
+    const cs = codeRows[d], ts = idRows[d], base = d * SEQ_LEN;
+    for (let p = 0; p < SEQ_LEN; p++) {
+      CODES[base + p] = cs[p] == null ? NULLC : parseInt(cs[p], 2);
+      IDS[base + p] = ts[p];
+    }
+  }
+  $('loaders').remove();
+  $('status').textContent = `${N.toLocaleString()} docs · ${(N * SEQ_LEN).toLocaleString()} tokens · ready`;
+  $('q').disabled = $('go').disabled = false;
+  $('q').focus();
+}
+
+function parseQuery(text) {
+  const parts = text.trim().split(/[\s,]+/).filter(Boolean);
+  if (!parts.length) throw new Error('enter at least one code');
+  return parts.map(p => {
+    if (!/^[01]+$/.test(p) || p.length < START_LEVEL_DEPTH || p.length > DEPTH)
+      throw new Error(`"${p}" must be ${START_LEVEL_DEPTH}\u2013${DEPTH} binary digits`);
+    return { val: parseInt(p, 2), shift: DEPTH - p.length };
+  });
+}
+
+function search(q) {
+  const m = q.length, hits = [];
+  for (let d = 0; d < N; d++) {
+    const base = d * SEQ_LEN;
+    for (let p = 1; p <= SEQ_LEN - m; p++) {
+      let ok = true;
+      for (let j = 0; j < m; j++) {
+        const c = CODES[base + p + j];
+        if (c === NULLC || (c >> q[j].shift) !== q[j].val) { ok = false; break; }
+      }
+      if (ok) hits.push([d, p]);
+    }
+  }
+  return hits;
+}
+
+const fullCode = (d, p) => CODES[d * SEQ_LEN + p].toString(2).padStart(DEPTH, '0');
+
+function renderHit(d, p, m) {
+  const toks = decodeDoc(d);
+  const card = document.createElement('div');
+  card.className = 'card';
+  const head = document.createElement('div');
+  head.className = 'head';
+  const wiki = DOCIDS[d] >= 0 ? ` · wiki #${DOCIDS[d]}` : '';
+  head.innerHTML = `<span>doc ${d}${wiki} · pos ${p}</span><span class="codes mono"></span><a class="toggle">expand</a>`;
+  head.querySelector('.codes').textContent = Array.from({ length: m }, (_, j) => fullCode(d, p + j)).join(' ');
+  const txt = document.createElement('div');
+  txt.className = 'txt';
+  const fill = (from, to) => {
+    txt.textContent = '';
+    if (from > 0) txt.append('… ');
+    for (let i = from; i < to; i++) {
+      if (i >= p && i < p + m) {
+        const mk = document.createElement('mark');
+        mk.textContent = toks[i];
+        mk.title = `pos ${i} · ${fullCode(d, i)}`;
+        txt.append(mk);
+      } else txt.append(toks[i]);
+    }
+    if (to < SEQ_LEN) txt.append(' …');
+  };
+  fill(Math.max(0, p - CTX), Math.min(SEQ_LEN, p + m + CTX));
+  const toggle = head.querySelector('.toggle');
+  toggle.onclick = () => {
+    const open = toggle.textContent === 'expand';
+    if (open) fill(0, SEQ_LEN);
+    else fill(Math.max(0, p - CTX), Math.min(SEQ_LEN, p + m + CTX));
+    toggle.textContent = open ? 'collapse' : 'expand';
+  };
+  card.append(head, txt);
+  return card;
+}
+
+function run() {
+  const status = $('status'), out = $('out');
+  out.textContent = '';
+  status.className = '';
+  let q;
+  try { q = parseQuery($('q').value); } catch (e) { status.className = 'err'; status.textContent = e.message; return; }
+  const t0 = performance.now();
+  const hits = search(q);
+  const docs = new Set(hits.map(h => h[0]));
+  status.textContent = `${hits.length.toLocaleString()} matches in ${docs.size.toLocaleString()} docs · ${(performance.now() - t0).toFixed(0)} ms`;
+  for (const [d, p] of hits.slice(0, MAX_RENDER)) out.appendChild(renderHit(d, p, q.length));
+  if (hits.length > MAX_RENDER) {
+    const more = document.createElement('div');
+    more.className = 'more';
+    more.textContent = `… ${(hits.length - MAX_RENDER).toLocaleString()} more matches not shown`;
+    out.appendChild(more);
+  }
+}
+
+$('go').onclick = run;
+$('q').onkeydown = e => { if (e.key === 'Enter') run(); };
+loadAll().catch(e => { $('status').className = 'err'; $('status').textContent = e.message + ' — serve this folder, e.g. `python -m http.server`'; });
+</script>
+</body>
+</html>

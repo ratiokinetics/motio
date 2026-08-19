@@ -185,3 +185,4 @@ tokenized.jsonl
 activations.npy
 /data
 assigned.jsonl
+vocab.json
