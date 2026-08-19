@@ -3,10 +3,10 @@ from datetime import datetime
 from pathlib import Path
 from sklearn.cluster import KMeans
 
-TRAIN_SAMPLE = 1_000_000
-N_INIT = 9  # k-means++ restarts per fit, best kept by inertia
+TRAIN_SAMPLE = 100_000
+N_INIT = 1  # k-means++ restarts per fit, best kept by inertia
 START_LEVEL_DEPTH = 6
-END_LEVEL_DEPTH = 12
+END_LEVEL_DEPTH = 10
 
 def sample(acts, n, rng):
     """Draw n random rows from a (docs, pos, d) memmap -> (n, d) float32."""
@@ -20,14 +20,15 @@ def preprocess(x, mu):
     x = np.asarray(x, dtype=np.float32) - mu
     return x / np.linalg.norm(x, axis=-1, keepdims=True)
 
-def fit(x, k):
+def fit(x, k, verbose=0):
     """Best-of-N_INIT k-means++. x: (n, d) -> (centroids, labels, inertia)"""
-    km = KMeans(k, n_init=N_INIT, random_state=0).fit(x)
+    km = KMeans(k, n_init=N_INIT, random_state=0, verbose=verbose).fit(x)
     return km.cluster_centers_, km.labels_, km.inertia_
 
-def save_depth(out_dir, depth, C, nodes, inertia):
+def save_depth(out_dir, depth, C, nodes, codes,inertia):
     sizes = np.array([len(n) for n in nodes])
-    np.savez(out_dir / f"depth_{depth:02}.npz", centroids=C, counts=sizes, inertia=inertia)
+    bcodes = np.array([format(c, f"0{depth}b") for c in codes]) 
+    np.savez(out_dir / f"depth_{depth:02}.npz", centroids=C, counts=sizes, codes=bcodes, inertia=inertia)
     print(
         f"depth={depth} leaves={len(nodes)} inertia={inertia:.1f} "
         f"min_size={sizes.min()} median_size={np.median(sizes):.0f} max_size={sizes.max()}"
@@ -49,25 +50,29 @@ def train():
     np.save(out_dir / "mu.npy", mu)
 
     # --- flat start at k=2**START_LEVEL_DEPTH ---
-    C, labels, inertia = fit(xp, 2**START_LEVEL_DEPTH)
+    print(f"Running flat start k-means at k={2**START_LEVEL_DEPTH} ... This may take a while...")
+    C, labels, inertia = fit(xp, 2**START_LEVEL_DEPTH, verbose=1)
     nodes = [np.flatnonzero(labels == i) for i in range(2**START_LEVEL_DEPTH)]
-    save_depth(out_dir, START_LEVEL_DEPTH, C, nodes, inertia)
+    codes = list(range(2**START_LEVEL_DEPTH))
+    save_depth(out_dir, START_LEVEL_DEPTH, C, nodes, codes, inertia)
 
     # --- binary recursion: each leaf -> 2 children ---
     for depth in range(START_LEVEL_DEPTH + 1, END_LEVEL_DEPTH + 1):
-        children, depth_centroids, depth_inertia = [], [], 0.0
-        for idxs in nodes:
+        children, child_codes, depth_centroids, depth_inertia = [], [], [], 0.0
+        for code, idxs in zip(codes, nodes):
             if len(idxs) < 2:  # unsplittable leaf: carry through unchanged (singleton inertia = 0)
                 print(f"depth={depth} unsplittable leaf at index {idxs} carrying {len(idxs)} elements")
                 children.append(idxs)
+                child_codes.append(code << 1) # carry as "<code>0";
                 depth_centroids.append(xp[idxs].mean(0, keepdims=True))
                 continue
             C, labels, inertia = fit(xp[idxs], 2)  # always k=2
             children += [idxs[labels == 0], idxs[labels == 1]]
+            child_codes += [code << 1, (code << 1) | 1] # add as "<code>0" and "<code>1";
             depth_centroids.append(C)
             depth_inertia += inertia
-        nodes = children
-        save_depth(out_dir, depth, np.concatenate(depth_centroids), nodes, depth_inertia)
+        nodes, codes = children, child_codes
+        save_depth(out_dir, depth, np.concatenate(depth_centroids), nodes, codes, depth_inertia)
 
 if __name__ == "__main__":
     train()

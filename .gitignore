@@ -184,3 +184,4 @@ cython_debug/
 tokenized.jsonl
 activations.npy
 /data
+assigned.jsonl
