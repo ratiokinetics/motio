@@ -32,14 +32,13 @@ python train.py
 python postprocess.py
 ```
 
-### Explore
+### Interface
 
 ```
-python -c "from transformers import GPT2TokenizerFast; import json; json.dump(GPT2TokenizerFast.from_pretrained('gpt2').get_vocab(), open('vocab.json','w'))"
-python -m http.server
+python server.py
 ```
 
-Open http://localhost:8000/interface.html and enter a sequence of cluster codes (6–10 bits each, space separated). Shorter codes prefix-match deeper clusters; matching tokens are highlighted in the decoded text.
+Boots run artifacts into RAM and serves http://localhost:8000/interface.html. Enter a sequence of cluster codes (6–10 bits each) by typing them space-separated. Shorter codes prefix-match deeper clusters; matching docs appear on the right.
 
 ### TODO
 

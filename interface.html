@@ -3,225 +3,341 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>motio · motion lang explorer</title>
+<title>motio</title>
 <style>
-  :root { --bg:#0b0d10; --card:#14171c; --border:#232830; --text:#e6e9ef; --dim:#8b93a1; --accent:#7c5cff; --accent2:#00d4ff; }
-  * { box-sizing:border-box }
-  body { margin:0; background:var(--bg); color:var(--text); font:15px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif }
-  .wrap { max-width:880px; margin:0 auto; padding:44px 20px 90px }
-  h1 { font-size:21px; margin:0 0 20px; letter-spacing:.3px }
-  h1 b { background:linear-gradient(90deg,var(--accent),var(--accent2)); -webkit-background-clip:text; background-clip:text; color:transparent }
-  code, .mono { font-family:ui-monospace,"SF Mono",Menlo,monospace }
-  .bar { display:flex; gap:10px }
-  input#q { flex:1; background:var(--card); border:1px solid var(--border); border-radius:10px; padding:13px 16px; color:var(--text); font:15px ui-monospace,Menlo,monospace; outline:none; letter-spacing:1px }
-  input#q:focus { border-color:var(--accent) }
-  button { background:linear-gradient(135deg,var(--accent),var(--accent2)); border:0; border-radius:10px; padding:0 22px; color:#fff; font-weight:600; font-size:14px; cursor:pointer }
-  button:disabled { filter:grayscale(1); opacity:.5; cursor:default }
-  #status { margin:14px 2px; color:var(--dim); font-size:13px; min-height:18px }
-  #status.err { color:#ff7b7b }
-  .load { display:flex; align-items:center; gap:10px; margin:6px 2px; font-size:12.5px; color:var(--dim) }
-  .load .track { flex:1; height:4px; background:var(--card); border-radius:2px; overflow:hidden }
-  .load .fill { height:100%; width:0; background:linear-gradient(90deg,var(--accent),var(--accent2)) }
-  .load .name { width:130px }
-  .card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:14px 18px; margin:14px 0 }
-  .card .head { display:flex; flex-wrap:wrap; gap:6px 16px; font-size:12.5px; color:var(--dim); margin-bottom:8px }
-  .card .head .codes { color:var(--accent2) }
-  .card .head .codes b { color:#fff }
-  .card .head .toggle { margin-left:auto; color:var(--accent); cursor:pointer; user-select:none }
-  .card .head .toggle:hover { text-decoration:underline }
-  .txt { white-space:pre-wrap; word-break:break-word; font-size:14.5px; color:#c7cdd8 }
-  .txt mark { background:rgba(124,92,255,.28); color:#fff; border-bottom:2px solid var(--accent2); border-radius:3px; padding:1px 1px; margin:0 1px }
-  .more { text-align:center; color:var(--dim); font-size:13px; margin-top:18px }
+  * { box-sizing:border-box; margin:0 }
+  html, body { height:100% }
+  body { display:flex; flex-direction:column; background:#fff; color:#000;
+         font:14px/1.45 ui-monospace, Menlo, Consolas, monospace }
+  b { font-weight:700 }
+
+  header { display:flex; align-items:baseline; gap:14px; padding:6px 14px; background:#000; color:#fff }
+  header h1 { font-size:16px; letter-spacing:2px }
+  #mockbadge { margin-left:auto; background:#ffe600; color:#000; border:2px solid #fff;
+               padding:0 8px; font-weight:700; font-size:12px }
+
+  main { flex:1; display:flex; min-height:0 }
+  #lhs { flex:3; min-width:0; display:flex; flex-direction:column; border-right:2px solid #000 }
+  #rhs { flex:2; min-width:0; display:flex; flex-direction:column }
+
+  /* ---- top quadrant: query (short and fat) ---- */
+  #query { border-bottom:2px solid #000; padding:14px }
+  #qform { display:flex; gap:8px }
+  #q { flex:1; min-width:0; border:2px solid #000; padding:10px 12px; outline:none;
+       font:20px ui-monospace, Menlo, monospace; letter-spacing:2px }
+  #q:focus { outline:3px solid #ffe600 }
+  #q.err { border-color:#e02000; outline:3px solid #e02000 }
+  #qform button { border:2px solid #000; background:#fff; color:#000; cursor:pointer;
+                  padding:0 24px; font:700 15px ui-monospace, monospace; letter-spacing:1px }
+  #qform button:hover { background:#000; color:#fff }
+  #qform button:active { background:#ffe600; color:#000 }
+
+  /* ---- bottom quadrant: map ---- */
+  #mapbox { flex:1; min-height:0; display:flex; flex-direction:column }
+  #mapbar { display:flex; align-items:center; gap:4px; padding:8px 14px }
+  .dbtn { border:1px solid #000; background:#fff; padding:2px 9px; cursor:pointer;
+          font:12px ui-monospace, monospace }
+  .dbtn.on { background:#000; color:#fff }
+  #canvaswrap { flex:1; min-height:0; display:flex; align-items:center; justify-content:center; padding:0 14px }
+  canvas { border:2px solid #000; cursor:crosshair }
+  #hoverinfo { padding:6px 14px 10px; font-size:12px; color:#333; min-height:29px }
+
+  /* ---- rhs: hits ---- */
+  #rbody { flex:1; overflow-y:auto }
+  .hit { padding:10px 12px; border-bottom:1px solid #ccc }
+  .hit .meta { display:flex; gap:10px; font-size:12px; margin-bottom:2px }
+  .docid { font-weight:700 }
+  .xp { margin-left:auto; text-decoration:underline; cursor:pointer; font-weight:700 }
+  .codes { font-size:10px; color:#999; letter-spacing:1px; margin-bottom:4px }
+  .codes b { color:#000; background:#ffe600 }
+  .snip { line-height:1.8; white-space:pre-wrap; word-break:break-word }
+  .dtok:hover { background:#eee }
+  .dtok.mark { background:#ffe600; font-weight:700 }
+  .dtok.nul { color:#999 }
 </style>
 </head>
 <body>
-<div class="wrap">
-  <h1><b>motio</b></h1>
-  <div class="bar">
-    <input id="q" placeholder="e.g. 010110 0010000101" disabled>
-    <button id="go" disabled>Search</button>
-  </div>
-  <div id="status">loading…</div>
-  <div id="loaders"></div>
-  <div id="out"></div>
-</div>
-<script>
-const START_LEVEL_DEPTH = 6, DEPTH = 10, SEQ_LEN = 512, CTX = 25, MAX_RENDER = 200, NULLC = 0xffff;
-let N = 0, CODES, IDS, VOCAB;
-const $ = id => document.getElementById(id);
 
-// GPT-2 byte-level BPE: unicode char -> original byte
-const B2U = (() => {
-  const bs = [];
-  for (let b = 33; b <= 126; b++) bs.push(b);
-  for (let b = 161; b <= 172; b++) bs.push(b);
-  for (let b = 174; b <= 255; b++) bs.push(b);
-  const cs = bs.slice();
-  let n = 0;
-  for (let b = 0; b < 256; b++) if (!bs.includes(b)) { bs.push(b); cs.push(256 + n++); }
-  const m = {};
-  bs.forEach((b, i) => m[String.fromCodePoint(cs[i])] = b);
-  return m;
+<header>
+  <h1>MOTIO</h1>
+  <span id="mockbadge">MOCK DATA</span>
+</header>
+
+<main>
+  <section id="lhs">
+    <div id="query">
+      <form id="qform">
+        <input id="q" placeholder="010110 0010000101" autocomplete="off" spellcheck="false">
+        <button type="submit">SEARCH</button>
+        <button type="button" id="reset">RESET</button>
+      </form>
+    </div>
+    <div id="mapbox">
+      <div id="mapbar"><span id="depths"></span></div>
+      <div id="canvaswrap"><canvas id="map"></canvas></div>
+      <div id="hoverinfo">&nbsp;</div>
+    </div>
+  </section>
+
+  <aside id="rhs">
+    <div id="rbody"></div>
+  </aside>
+</main>
+
+<script>
+'use strict';
+const MOCK = true;                          // flip to false to attach server.py
+const START = 6, END = 10, SEQ = 512, W = SEQ - 1, N_DOCS = 200, MAX_HITS = 200, CTX = 25;
+const $ = id => document.getElementById(id);
+const fmt = v => v.toString(2).padStart(END, '0');
+const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+
+/* ================= mock data ================= */
+function mulberry32(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0;
+  let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+  return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+
+const VOCAB = (' the, of, and, in, to, a, is, was, for, on, as, with, by, at, from, that, it, an,' +
+  ' be, are, were, this, which, or, had, has, its, but, not, their, one, two, first, new, more,' +
+  ' also, into, after, time, year, city, world, war, state, national, university, government,' +
+  ' president, century, north, south, music, film, series, game, team, season, league, school,' +
+  ' river, island, king, family, house, group, company, party, member, several, known, called,' +
+  ' made, used, found, became, began, following, during, between, under, through, early, later,' +
+  ' part, name, small, large, work, life, area, population, history, second, number, system,' +
+  ' based, built, played, released, published, won, held, born, The, In, A, He, She, It, John,' +
+  ' London, England, American, British, French, German, 1999, 2020, 18, 19').split(',')
+  .concat(['.', ',', "'s", ' (', ')', ':', ';']);
+
+const CODES = new Uint16Array(N_DOCS * W), TEXTID = new Uint16Array(N_DOCS * SEQ);
+{
+  const r = mulberry32(42);
+  const HOT = [...Array(8)].map(() => r() * 128 | 0);      // 7-bit hot prefixes -> visible blobs
+  for (let i = 0; i < CODES.length; i++)
+    CODES[i] = r() < .4 ? (HOT[r() * 8 | 0] << 3) | (r() * 8 | 0) : r() * 1024 | 0;
+  for (let i = 0; i < TEXTID.length; i++) TEXTID[i] = r() * VOCAB.length | 0;
+}
+
+function mockTree() {
+  const r = mulberry32(7), nodes = [];
+  const walk = (code, parent) => {
+    const d = code.length, alive = d < END && r() > .08;
+    nodes.push({ code, depth: d, parent, children: alive ? [code + '0', code + '1'] : [],
+                 dead: d < END && !alive });
+    if (alive) { walk(code + '0', code); walk(code + '1', code); }
+  };
+  for (let c = 0; c < 64; c++) walk(c.toString(2).padStart(6, '0'), null);
+  return { start: START, end: END, nodes };
+}
+
+function mockSearch(prefixes) {                            // same semantics as server.search
+  const m = prefixes.length, vals = prefixes.map(p => parseInt(p, 2)),
+        sh = prefixes.map(p => END - p.length);
+  const hits = []; let total = 0;
+  for (let d = 0; d < N_DOCS; d++) for (let c = 0; c + m <= W; c++) {
+    let ok = true;
+    for (let j = 0; j < m; j++) if (CODES[d * W + c + j] >> sh[j] !== vals[j]) { ok = false; break; }
+    if (!ok) continue;
+    total++;
+    if (hits.length < MAX_HITS) {
+      const s = c + 1, e = c + m, ws = Math.max(1, s - CTX), we = Math.min(SEQ - 1, e + CTX);
+      hits.push({ doc_id: d, start: s, end: e, ctx_start: ws,
+        tokens: [...Array(we - ws + 1)].map((_, k) => { const p = ws + k;
+          return { text: VOCAB[TEXTID[d * SEQ + p]], code: fmt(CODES[d * W + p - 1]),
+                   match: p >= s && p <= e }; }) });
+    }
+  }
+  return { total, hits };
+}
+
+function mockDoc(i) {
+  return { doc_id: i, tokens: [...Array(SEQ)].map((_, p) =>
+    ({ text: VOCAB[TEXTID[i * SEQ + p]], code: p ? fmt(CODES[i * W + p - 1]) : null })) };
+}
+
+/* ================= api (mock <-> server) ================= */
+const api = {
+  tree:   async ()  => MOCK ? mockTree()   : (await fetch('/tree')).json(),
+  search: async p   => MOCK ? mockSearch(p) : (await fetch('/search', { method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prefixes: p }) })).json(),
+  doc:    async i   => MOCK ? mockDoc(i)   : (await fetch('/docs/' + i)).json(),
+};
+
+/* ================= map ================= */
+const S = { tree: null, depth: START, prefixes: [], hover: null };
+const cv = $('map'), ctx = cv.getContext('2d');
+let CS = 0;
+
+function rectOf(code) {                                    // SPECS layout: even bit->X, odd->Y, 0=left/bottom
+  let x = 0, y = 0, w = 1, h = 1;
+  for (let i = 0; i < code.length; i++)
+    if (i % 2 === 0) { w /= 2; if (code[i] === '1') x += w; }
+    else             { h /= 2; if (code[i] === '1') y += h; }
+  return { x, y, w, h };
+}
+function pxOf(code) {                                      // y flipped: unit-square bottom -> canvas bottom
+  const r = rectOf(code);
+  const x = Math.round(r.x * CS), y = Math.round((1 - r.y - r.h) * CS);
+  return [x, y, Math.round((r.x + r.w) * CS) - x, Math.round((1 - r.y) * CS) - y];
+}
+const cells = () => S.tree.nodes.filter(n => n.depth === S.depth || (n.dead && n.depth < S.depth));
+
+function arrow(a, b) {
+  const dx = b.x - a.x, dy = b.y - a.y, L = Math.hypot(dx, dy);
+  if (L < 8) return;                                       // repeated cell: nothing to draw
+  const ux = dx / L, uy = dy / L, s = 7;
+  ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x - s * ux, b.y - s * uy); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(b.x, b.y);
+  ctx.lineTo(b.x - s * ux + s * .45 * uy, b.y - s * uy - s * .45 * ux);
+  ctx.lineTo(b.x - s * ux - s * .45 * uy, b.y - s * uy + s * .45 * ux);
+  ctx.closePath(); ctx.fill();
+}
+
+const HATCH = (() => {
+  const c = document.createElement('canvas'); c.width = c.height = 8;
+  const g = c.getContext('2d'); g.strokeStyle = '#aaa';
+  g.beginPath(); g.moveTo(0, 8); g.lineTo(8, 0); g.moveTo(-2, 2); g.lineTo(2, -2);
+  g.moveTo(6, 10); g.lineTo(10, 6); g.stroke(); return c;
 })();
 
-const decCache = new Map();
-function decodeDoc(d) {  // -> array of SEQ_LEN per-token strings
-  if (decCache.has(d)) return decCache.get(d);
-  const td = new TextDecoder(), out = new Array(SEQ_LEN), base = d * SEQ_LEN;
-  for (let p = 0; p < SEQ_LEN; p++) {
-    const s = VOCAB[IDS[base + p]] || '';
-    const bytes = new Uint8Array(s.length);
-    for (let i = 0; i < s.length; i++) bytes[i] = B2U[s[i]];
-    out[p] = td.decode(bytes, { stream: true });  // multi-byte chars may span tokens
+function draw() {
+  if (!S.tree || !CS) return;
+  const dpr = devicePixelRatio || 1;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, CS, CS);
+  const hatch = ctx.createPattern(HATCH, 'repeat');
+  ctx.lineWidth = 1;
+
+  for (const c of cells()) {
+    const [x, y, w, h] = pxOf(c.code);
+    if (c.dead) { ctx.fillStyle = hatch; ctx.fillRect(x, y, w, h); }
+    ctx.strokeStyle = '#ccc'; ctx.strokeRect(x + .5, y + .5, w - 1, h - 1);
   }
-  decCache.set(d, out);
-  return out;
-}
-
-function progressRow(name) {
-  const row = document.createElement('div');
-  row.className = 'load';
-  row.innerHTML = `<span class="name mono">${name}</span><div class="track"><div class="fill"></div></div><span class="mb"></span>`;
-  $('loaders').appendChild(row);
-  return (loaded, total) => {
-    row.querySelector('.fill').style.width = total ? (100 * loaded / total) + '%' : '50%';
-    row.querySelector('.mb').textContent = (loaded / 1048576).toFixed(0) + ' MB';
-  };
-}
-
-async function loadLines(url, onLine, onProgress) {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`${url}: HTTP ${res.status}`);
-  const total = +res.headers.get('content-length') || 0;
-  const reader = res.body.getReader(), td = new TextDecoder();
-  let buf = '', loaded = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    loaded += value.length;
-    buf += td.decode(value, { stream: true });
-    let i;
-    while ((i = buf.indexOf('\n')) >= 0) { const l = buf.slice(0, i); buf = buf.slice(i + 1); if (l.trim()) onLine(l); }
-    onProgress(loaded, total);
+  ctx.strokeStyle = '#000';                                // depth-6 skeleton on top
+  for (const n of S.tree.nodes) if (n.depth === START) {
+    const [x, y, w, h] = pxOf(n.code); ctx.strokeRect(x + .5, y + .5, w - 1, h - 1);
   }
-  if ((buf += td.decode()).trim()) onLine(buf);
-}
-
-async function loadAll() {
-  const codeRows = [], idRows = [];
-  await Promise.all([
-    fetch('vocab.json').then(r => { if (!r.ok) throw new Error('vocab.json: HTTP ' + r.status); return r.json(); })
-      .then(v => { VOCAB = []; for (const t in v) VOCAB[v[t]] = t; progressRow('vocab.json')(1, 1); }),
-    loadLines('tokenized.jsonl', l => idRows.push(JSON.parse(l).ids), progressRow('tokenized.jsonl')),
-    loadLines('assigned.jsonl', l => codeRows.push(JSON.parse(l).cluster_ids), progressRow('assigned.jsonl')),
-  ]);
-  N = Math.min(codeRows.length, idRows.length);
-  CODES = new Uint16Array(N * SEQ_LEN);
-  IDS = new Uint16Array(N * SEQ_LEN);
-  for (let d = 0; d < N; d++) {
-    const cs = codeRows[d], ts = idRows[d], base = d * SEQ_LEN;
-    for (let p = 0; p < SEQ_LEN; p++) {
-      CODES[base + p] = cs[p] == null ? NULLC : parseInt(cs[p], 2);
-      IDS[base + p] = ts[p];
-    }
+  for (const p of S.prefixes) {                            // queried clusters
+    const [x, y, w, h] = pxOf(p);
+    ctx.strokeStyle = '#e02000'; ctx.lineWidth = 3;
+    ctx.strokeRect(x + 1.5, y + 1.5, w - 3, h - 3); ctx.lineWidth = 1;
   }
-  $('loaders').remove();
-  $('status').textContent = `${N.toLocaleString()} docs · ${(N * SEQ_LEN).toLocaleString()} tokens · ready`;
-  $('q').disabled = $('go').disabled = false;
-  $('q').focus();
-}
-
-function parseQuery(text) {
-  const parts = text.trim().split(/[\s,]+/).filter(Boolean);
-  if (!parts.length) throw new Error('enter at least one code');
-  return parts.map(p => {
-    if (!/^[01]+$/.test(p) || p.length < START_LEVEL_DEPTH || p.length > DEPTH)
-      throw new Error(`"${p}" must be ${START_LEVEL_DEPTH}\u2013${DEPTH} binary digits`);
-    return { val: parseInt(p, 2), shift: DEPTH - p.length };
-  });
-}
-
-function search(q) {
-  const m = q.length, hits = [];
-  for (let d = 0; d < N; d++) {
-    const base = d * SEQ_LEN;
-    for (let p = 1; p <= SEQ_LEN - m; p++) {
-      let ok = true;
-      for (let j = 0; j < m; j++) {
-        const c = CODES[base + p + j];
-        if (c === NULLC || (c >> q[j].shift) !== q[j].val) { ok = false; break; }
-      }
-      if (ok) hits.push([d, p]);
-    }
+  if (S.prefixes.length > 1) {                             // arrows connect the sequence in order
+    ctx.strokeStyle = ctx.fillStyle = '#e02000'; ctx.lineWidth = 2;
+    const ctr = S.prefixes.map(p => { const [x, y, w, h] = pxOf(p);
+                                      return { x: x + w / 2, y: y + h / 2 }; });
+    for (let i = 1; i < ctr.length; i++) arrow(ctr[i - 1], ctr[i]);
+    ctx.lineWidth = 1;
   }
-  return hits;
-}
-
-const fullCode = (d, p) => CODES[d * SEQ_LEN + p].toString(2).padStart(DEPTH, '0');
-
-function renderHit(d, p, q) {
-  const m = q.length, toks = decodeDoc(d);
-  const card = document.createElement('div');
-  card.className = 'card';
-  const head = document.createElement('div');
-  head.className = 'head';
-  head.innerHTML = `<span>doc ${d} · pos ${p}</span><span class="codes mono"></span><a class="toggle">expand</a>`;
-  const codes = head.querySelector('.codes');
-  q.forEach((c, j) => {
-    const full = fullCode(d, p + j), len = DEPTH - c.shift;
-    const b = document.createElement('b');
-    b.textContent = full.slice(0, len);
-    codes.append(b, full.slice(len) + (j < m - 1 ? ' ' : ''));
-  });
-  const txt = document.createElement('div');
-  txt.className = 'txt';
-  const fill = (from, to) => {
-    txt.textContent = '';
-    if (from > 0) txt.append('… ');
-    for (let i = from; i < to; i++) {
-      if (i >= p && i < p + m) {
-        const mk = document.createElement('mark');
-        mk.textContent = toks[i];
-        mk.title = `pos ${i} · ${fullCode(d, i)}`;
-        txt.append(mk);
-      } else txt.append(toks[i]);
-    }
-    if (to < SEQ_LEN) txt.append(' …');
-  };
-  fill(Math.max(0, p - CTX), Math.min(SEQ_LEN, p + m + CTX));
-  const toggle = head.querySelector('.toggle');
-  toggle.onclick = () => {
-    const open = toggle.textContent === 'expand';
-    if (open) fill(0, SEQ_LEN);
-    else fill(Math.max(0, p - CTX), Math.min(SEQ_LEN, p + m + CTX));
-    toggle.textContent = open ? 'collapse' : 'expand';
-  };
-  card.append(head, txt);
-  return card;
-}
-
-function run() {
-  const status = $('status'), out = $('out');
-  out.textContent = '';
-  status.className = '';
-  let q;
-  try { q = parseQuery($('q').value); } catch (e) { status.className = 'err'; status.textContent = e.message; return; }
-  const t0 = performance.now();
-  const hits = search(q);
-  const docs = new Set(hits.map(h => h[0]));
-  status.textContent = `${hits.length.toLocaleString()} matches in ${docs.size.toLocaleString()} docs · ${(performance.now() - t0).toFixed(0)} ms`;
-  for (const [d, p] of hits.slice(0, MAX_RENDER)) out.appendChild(renderHit(d, p, q));
-  if (hits.length > MAX_RENDER) {
-    const more = document.createElement('div');
-    more.className = 'more';
-    more.textContent = `… ${(hits.length - MAX_RENDER).toLocaleString()} more matches not shown`;
-    out.appendChild(more);
+  if (S.hover) {
+    const [x, y, w, h] = pxOf(S.hover.code);
+    ctx.fillStyle = 'rgba(255,230,0,.35)'; ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = '#c7ab00'; ctx.lineWidth = 2; ctx.strokeRect(x + 1, y + 1, w - 2, h - 2);
+    ctx.lineWidth = 1;
   }
 }
 
-$('go').onclick = run;
-$('q').onkeydown = e => { if (e.key === 'Enter') run(); };
-loadAll().catch(e => { $('status').className = 'err'; $('status').textContent = e.message + ' — serve this folder, e.g. `python -m http.server`'; });
+function resize() {
+  const b = $('canvaswrap').getBoundingClientRect();
+  CS = Math.max(80, Math.floor(Math.min(b.width, b.height)) - 8);
+  const dpr = devicePixelRatio || 1;
+  cv.style.width = cv.style.height = CS + 'px';
+  cv.width = cv.height = CS * dpr;
+  draw();
+}
+new ResizeObserver(resize).observe($('canvaswrap'));
+
+cv.onmousemove = e => {
+  const b = cv.getBoundingClientRect();
+  const ux = (e.clientX - b.left) / b.width, uy = 1 - (e.clientY - b.top) / b.height;
+  const c = cells().find(c => { const r = rectOf(c.code);
+    return ux >= r.x && ux < r.x + r.w && uy >= r.y && uy < r.y + r.h; }) || null;
+  if (c !== S.hover) {
+    S.hover = c; draw();
+    $('hoverinfo').textContent = c
+      ? `${c.code} · depth ${c.depth}${c.dead ? ' · DEAD' : ''}` : '\u00a0';
+  }
+};
+cv.onmouseleave = () => { S.hover = null; draw(); $('hoverinfo').textContent = '\u00a0'; };
+cv.onclick = () => {                                       // click cells to build the sequence
+  if (!S.hover) return;
+  const q = $('q'), v = q.value.trim();
+  q.value = v ? v + ' ' + S.hover.code : S.hover.code;
+  q.focus(); q.setSelectionRange(q.value.length, q.value.length);
+  q.scrollLeft = q.scrollWidth;
+  runSearch();
+};
+
+/* ================= search + rhs ================= */
+let lastRes = null;
+
+async function runSearch() {
+  const q = $('q'), raw = q.value.trim().split(/\s+/).filter(Boolean);
+  const bad = !raw.length || raw.some(p => !/^[01]{6,10}$/.test(p));
+  q.classList.toggle('err', bad);
+  if (bad) return;
+  const res = await api.search(raw);
+  if (res.error) { q.classList.add('err'); return; }
+  S.prefixes = raw;
+  draw();
+  lastRes = res;
+  renderHits(res);
+}
+
+const tokSpan = (t, pos, s, e) =>
+  `<span class="dtok${pos >= s && pos <= e ? ' mark' : ''}${t.code ? '' : ' nul'}"` +
+  (t.code ? ` title="${t.code}"` : '') + `>` + esc(t.text) + `</span>`;
+const snipHTML = (toks, first, s, e) =>                    // first = doc position of toks[0]
+  (first > 1 ? '\u2026 ' : '') + toks.map((t, i) => tokSpan(t, first + i, s, e)).join('') +
+  (first + toks.length < SEQ ? ' \u2026' : '');
+
+function renderHits(res) {
+  $('rbody').innerHTML = res.hits.map((h, i) =>
+    `<div class="hit" data-i="${i}"><div class="meta">` +
+    `<span class="docid">doc ${h.doc_id}</span><span>pos ${h.start}\u2013${h.end}</span>` +
+    `<a class="xp">expand</a></div>` +
+    `<div class="codes">` + S.prefixes.map((p, j) => {
+      const c = h.tokens[h.start - h.ctx_start + j].code;
+      return `<b>${c.slice(0, p.length)}</b>${c.slice(p.length)}`;
+    }).join(' ') + `</div>` +
+    `<div class="snip">${snipHTML(h.tokens, h.ctx_start, h.start, h.end)}</div></div>`).join('');
+  $('rbody').scrollTop = 0;
+}
+
+$('rbody').addEventListener('click', async e => {
+  const t = e.target;
+  if (t.classList.contains('xp')) {                        // toggle snippet <-> full 512-token doc
+    const el = t.closest('.hit'), h = lastRes.hits[+el.dataset.i], sn = el.querySelector('.snip');
+    const open = t.textContent === 'expand';
+    t.textContent = open ? 'collapse' : 'expand';
+    sn.innerHTML = open ? snipHTML((await api.doc(h.doc_id)).tokens, 0, h.start, h.end)
+                        : snipHTML(h.tokens, h.ctx_start, h.start, h.end);
+    if (open) sn.querySelector('.mark')?.scrollIntoView({ block: 'center' });
+  }
+});
+
+/* ================= init ================= */
+$('qform').onsubmit = e => { e.preventDefault(); runSearch(); };
+$('reset').onclick = () => {
+  $('q').value = ''; $('q').classList.remove('err');
+  S.prefixes = []; lastRes = null;
+  draw();
+  $('rbody').innerHTML = '';
+};
+(async () => {
+  S.tree = await api.tree();
+  $('mockbadge').style.display = MOCK ? '' : 'none';
+  const bar = $('depths');
+  for (let d = START; d <= END; d++) {
+    const b = document.createElement('button');
+    b.className = 'dbtn' + (d === S.depth ? ' on' : ''); b.textContent = d;
+    b.onclick = () => { S.depth = d;
+      [...bar.children].forEach(x => x.classList.toggle('on', +x.textContent === d));
+      draw(); };
+    bar.appendChild(b);
+  }
+  resize();
+})();
 </script>
 </body>
 </html>
