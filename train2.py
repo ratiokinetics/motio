@@ -94,15 +94,20 @@ for depth in range(START + 1, END + 1):
     nodes, codes = child_nodes, child_codes
     save_depth(depth, np.concatenate(cents), nodes, codes, depth_inertia)
 
-# # 5. Assign every token (except pos 0) to nearest leaf
-# leaf = np.load(out / f"depth_{END:02}.npz")
-# centroids, bcodes, c2 = leaf["centroids"], leaf["codes"], np.sum(leaf["centroids"] ** 2, axis=1)
-# with open(out / ASSIGNED, "w") as f:
-#     for i in range(0, len(ids), ASSIGN_BATCH):
-#         print(f"assign {i}/{len(ids)}")
-#         B = len(ids[i:i + ASSIGN_BATCH])
-#         a = center_norm(acts[i:i + B], mu).reshape(-1, d)
-#         idx = np.argmin(1 - 2 * (a @ centroids.T) + c2, axis=-1).reshape(B, CONTEXT_SIZE)
-#         for j in range(B):
-#             f.write(json.dumps({"cluster_ids": [None] + [str(bcodes[idx[j, p]]) for p in range(1, CONTEXT_SIZE)]}) + "\n")
-# print("run:", out)
+# 5. Assign every token (except pos 0) to nearest leaf at the deepest level
+final = np.load(out / f"depth_{END:02}.npz")
+centroids, bcodes, c2 = final["centroids"], final["codes"], np.sum(final["centroids"] ** 2, axis=1)
+print("centroids:", centroids.shape)
+print("bcodes:", bcodes.shape)
+print("c2:", c2.shape)
+with open(out / ASSIGNED, "w") as f:
+    for i in range(0, len(ids), ASSIGN_BATCH):
+        print(f"assign {i}/{len(ids)}")
+        B = len(ids[i:i + ASSIGN_BATCH])
+        a = center_norm(acts[i:i + B], mu).reshape(-1, d)
+        # For unit vectors: argmin ||a-c||^2 = ||a||^2 - 2a*c + ||c||^2 = 1 - 2a*c + ||c||^2
+        print("a.shape:", a.shape)
+        idx = np.argmin(1 - 2 * (a @ centroids.T) + c2, axis=-1).reshape(B, CONTEXT_SIZE)
+        for j in range(B):
+            f.write(json.dumps({"cluster_ids": [None] + [str(bcodes[idx[j, p]]) for p in range(1, CONTEXT_SIZE)]}) + "\n")
+print("run:", out)

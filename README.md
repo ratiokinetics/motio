@@ -49,3 +49,7 @@ Boots run artifacts into RAM and serves http://localhost:8000/interface.html. En
 - Graphic step to display a sentence
 - Score to measure how close to cluster some sequence is
 - Allow to user enter to enter a sentence 
+- min 2 codes to be shown
+- better colours
+- Add interesting codes that I discovered 
+- Autointerpretability. 
