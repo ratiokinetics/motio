@@ -7,25 +7,26 @@ import numpy as np
 import torch
 from sae_lens import PretokenizeRunner, PretokenizeRunnerConfig
 from sklearn.cluster import KMeans
-from transformers import GPT2Model, AutoTokenizer
+from transformers import AutoModelForCausalLM
 
 # --- hyperparams ---
-DATASET, SIZE = "NeelNanda/c4-10k", 1_000
-MODEL, CONTEXT_SIZE, LAYER = "gpt2", 512, 10
+DATASET, SIZE = "monology/pile-uncopyrighted", 20_000
+MODEL, CONTEXT_SIZE, TARGET_BLOCK = "Qwen/Qwen2.5-7B-Instruct", 512, 20
 TOKENIZED, ACTS, ASSIGNED = "tokenized", "activations.npy", "assigned.jsonl"
-TRAIN_SAMPLE, N_INIT, START, END = 100_000, 1, 6, 10
-FWD_BATCH, ASSIGN_BATCH = 32, 256
+TRAIN_SAMPLE, N_INIT, START, END = 1_000_000, 5, 6, 12
+FWD_BATCH, ASSIGN_BATCH = 32, 64
 DEVICE = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
 
-out = Path(f"data/RUN_{datetime.now():%Y%m%d_%H%M%S}")
+FS = Path("/lambda/nfs/3ced27142d7147bfa9d1f41702875fe4")  # Modify if running elsewhere (e.g. "data" for local runs)
+out = FS / f"RUN_{datetime.now():%Y%m%d_%H%M%S}"
 out.mkdir(parents=True)
 
 def center_norm(x, mu):
     x = np.asarray(x, dtype=np.float32) - mu
     return x / np.linalg.norm(x, axis=-1, keepdims=True)
 
-def fit(x, k, verbose=0):
-    km = KMeans(k, n_init=N_INIT, random_state=0, verbose=verbose).fit(x) # sklearn keeps the run with lowest inertia across seeds
+def fit(x, k, n_init=1, verbose=0):
+    km = KMeans(k, n_init=n_init, random_state=0, verbose=verbose).fit(x) # sklearn keeps the run with lowest inertia across seeds
     return km.cluster_centers_, km.labels_, km.inertia_
 
 def save_depth(depth, C, nodes, codes, inertia):
@@ -34,11 +35,12 @@ def save_depth(depth, C, nodes, codes, inertia):
              codes=np.array([format(c, f"0{depth}b") for c in codes]), inertia=inertia)
     print(f"depth={depth} leaves={len(nodes)} inertia={inertia:.1f} min={sizes.min()} max={sizes.max()}")
 
-# 1–2. Load + tokenize (one sequence per doc: prepend BOS, drop shorts, truncate to CONTEXT_SIZE)
+# 1–2. Load + tokenize (one sequence per doc: drop shorts, truncate to CONTEXT_SIZE)
 cfg = PretokenizeRunnerConfig(
-    dataset_path=DATASET, tokenizer_name=MODEL, split=f"train[:{SIZE}]",
+    dataset_path=DATASET, tokenizer_name=MODEL, data_files=["val.jsonl.zst"],
+    split=f"train[:{SIZE}]",
     context_size=CONTEXT_SIZE, disable_concat_sequences=True,
-    begin_batch_token="bos", begin_sequence_token=None, sequence_separator_token=None, # Modify for different models
+    begin_batch_token=None, begin_sequence_token=None, sequence_separator_token=None, # Modify for different models
     shuffle=True, seed=42, num_proc=8, save_path=str(out / TOKENIZED),
 )
 
@@ -47,20 +49,23 @@ ids = np.stack([np.asarray(r, dtype=np.int64) for r in dataset["input_ids"]])
 print(f"Number of rows: {len(ids)}")
 print(f"Length of each row: {len(ids[0])}")
 
-# 3. Activations at LAYER
-model = GPT2Model.from_pretrained(MODEL).eval().to(DEVICE)
-d_model = model.config.n_embd
+# 3. Activations after zero-based decoder block TARGET_BLOCK
+model = AutoModelForCausalLM.from_pretrained(MODEL, torch_dtype=torch.bfloat16).eval().to(DEVICE)
+d_model = model.config.hidden_size
 acts = np.lib.format.open_memmap(out / ACTS, mode="w+", dtype=np.float32, shape=(len(ids), CONTEXT_SIZE, d_model))
 with torch.no_grad():
     for i in range(0, len(ids), FWD_BATCH):
         print(f"acts {i}/{len(ids)}")
         batch = torch.tensor(ids[i:i + FWD_BATCH], device=DEVICE)
-        # hidden_states[0]  → token embeddings ... hidden_states[1]  → after block 0 ... hidden_states[LAYER] → after block LAYER - 1
-        acts[i:i + len(batch)] = model(batch, output_hidden_states=True).hidden_states[LAYER].cpu().numpy()
+        hidden_states = model.model(
+            batch, output_hidden_states=True, use_cache=False
+        ).hidden_states
+        activation = hidden_states[TARGET_BLOCK + 1]
+        acts[i:i + len(batch)] = activation.float().cpu().numpy()
 acts.flush()
 print("acts:", acts.shape)
 
-# 4. Train recursive binary k-means on a sample of activations ()
+# 4. Train recursive binary k-means on a sample of activations
 flat = acts[:, 1:] # drop pos 0
 n_docs, n_pos, d = flat.shape
 print("flat:", flat.shape)
@@ -73,7 +78,7 @@ mu, xp = x.mean(0), center_norm(x, x.mean(0))
 np.save(out / "mu.npy", mu)
 
 print(f"Running flat start k-means at k={2**START} ... This may take a while...")
-C, labels, inertia = fit(xp, 2**START, verbose=1)
+C, labels, inertia = fit(xp, 2**START, n_init=N_INIT, verbose=1)
 nodes = [np.nonzero(labels == i)[0] for i in range(2**START)]
 codes = list(range(2**START))
 save_depth(START, C, nodes, codes, inertia)
