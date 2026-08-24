@@ -17,7 +17,7 @@ TRAIN_SAMPLE, N_INIT, START, END = 1_000_000, 5, 6, 12
 FWD_BATCH, ASSIGN_BATCH = 32, 64
 DEVICE = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
 
-FS = Path("/lambda/nfs/3ced27142d7147bfa9d1f41702875fe4")  # Modify if running elsewhere (e.g. "data" for local runs)
+FS = Path("/lambda/nfs/motio")  # Modify if running elsewhere (e.g. "data" for local runs)
 out = FS / f"RUN_{datetime.now():%Y%m%d_%H%M%S}"
 out.mkdir(parents=True)
 
