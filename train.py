@@ -10,10 +10,10 @@ from sklearn.cluster import KMeans
 from transformers import AutoModelForCausalLM
 
 # --- hyperparams ---
-DATASET, SIZE = "monology/pile-uncopyrighted", 20_000
+DATASET, SIZE = "monology/pile-uncopyrighted", 50_000
 MODEL, CONTEXT_SIZE, TARGET_BLOCK = "Qwen/Qwen2.5-7B-Instruct", 512, 20
 TOKENIZED, ACTS, ASSIGNED = "tokenized", "activations.npy", "assigned.jsonl"
-TRAIN_SAMPLE, N_INIT, START, END = 1_000_000, 5, 6, 12
+TRAIN_SAMPLE, N_INIT, START, END = 1_000_000, 5, 6, 11
 FWD_BATCH, ASSIGN_BATCH = 32, 64
 DEVICE = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
 
