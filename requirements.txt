@@ -3,3 +3,4 @@ transformers
 torch
 numpy
 scikit-learn
+sae-lens

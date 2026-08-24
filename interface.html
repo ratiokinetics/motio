@@ -45,9 +45,10 @@
   /* ---- rhs: hits ---- */
   #rbody { flex:1; overflow-y:auto }
   .hit { padding:10px 12px; border-bottom:1px solid #ccc }
-  .hit .meta { display:flex; gap:10px; font-size:12px; margin-bottom:2px }
+  .hit .meta { display:flex; align-items:center; gap:10px; font-size:12px; margin-bottom:2px }
   .docid { font-weight:700 }
-  .xp { margin-left:auto; text-decoration:underline; cursor:pointer; font-weight:700 }
+  .xp { margin-left:auto; cursor:pointer; width:16px; height:16px; flex-shrink:0; line-height:0 }
+  .xp svg { display:block; width:16px; height:16px }
   .codes { font-size:10px; color:#999; letter-spacing:1px; margin-bottom:4px }
   .codes b { color:#000; background:#ffe600 }
   .snip { line-height:1.8; white-space:pre-wrap; word-break:break-word }
@@ -255,10 +256,11 @@ cv.onmousemove = e => {
   if (c !== S.hover) {
     S.hover = c; draw();
     $('hoverinfo').textContent = c
-      ? `${c.code} · depth ${c.depth}${c.dead ? ' · DEAD' : ''}` : '\u00a0';
+      ? `${c.code} · depth ${c.depth}` : '\u00a0';
   }
 };
 cv.onmouseleave = () => { S.hover = null; draw(); $('hoverinfo').textContent = '\u00a0'; };
+cv.onmousedown = e => e.preventDefault();                  // keep #q focused; blur resets scrollLeft
 cv.onclick = () => {                                       // click cells to build the sequence
   if (!S.hover) return;
   const q = $('q'), v = q.value.trim();
@@ -284,6 +286,12 @@ async function runSearch() {
   renderHits(res);
 }
 
+const ICO = {                                               // boxed ↗↙ : out = expand, in = collapse
+  expand: '<svg viewBox="0 0 16 16"><rect width="16" height="16" rx="3" fill="#000"/>' +
+    '<path d="M9 3.5h3.5V7M12.5 3.5 9 7M7 12.5H3.5V9M3.5 12.5 7 9" fill="none" stroke="#fff" stroke-width="1.4" stroke-linecap="square"/></svg>',
+  collapse: '<svg viewBox="0 0 16 16"><rect x="1" y="1" width="14" height="14" rx="2.5" fill="#fff" stroke="#000" stroke-width="1.4"/>' +
+    '<path d="M12.5 7H9V3.5M9 7l3.5-3.5M3.5 9H7v3.5M7 9 3.5 12.5" fill="none" stroke="#000" stroke-width="1.4" stroke-linecap="square"/></svg>',
+};
 const tokSpan = (t, pos, s, e) =>
   `<span class="dtok${pos >= s && pos <= e ? ' mark' : ''}${t.code ? '' : ' nul'}"` +
   (t.code ? ` title="${t.code}"` : '') + `>` + esc(t.text) + `</span>`;
@@ -295,7 +303,7 @@ function renderHits(res) {
   $('rbody').innerHTML = res.hits.map((h, i) =>
     `<div class="hit" data-i="${i}"><div class="meta">` +
     `<span class="docid">doc ${h.doc_id}</span><span>pos ${h.start}\u2013${h.end}</span>` +
-    `<a class="xp">expand</a></div>` +
+    `<a class="xp" title="expand">${ICO.expand}</a></div>` +
     `<div class="codes">` + S.prefixes.map((p, j) => {
       const c = h.tokens[h.start - h.ctx_start + j].code;
       return `<b>${c.slice(0, p.length)}</b>${c.slice(p.length)}`;
@@ -305,15 +313,17 @@ function renderHits(res) {
 }
 
 $('rbody').addEventListener('click', async e => {
-  const t = e.target;
-  if (t.classList.contains('xp')) {                        // toggle snippet <-> full 512-token doc
-    const el = t.closest('.hit'), h = lastRes.hits[+el.dataset.i], sn = el.querySelector('.snip');
-    const open = t.textContent === 'expand';
-    t.textContent = open ? 'collapse' : 'expand';
-    sn.innerHTML = open ? snipHTML((await api.doc(h.doc_id)).tokens, 0, h.start, h.end)
-                        : snipHTML(h.tokens, h.ctx_start, h.start, h.end);
-    if (open) sn.querySelector('.mark')?.scrollIntoView({ block: 'center' });
-  }
+  const t = e.target.closest('.xp');
+  if (!t) return;                                          // pin hit header; body grows below
+  const el = t.closest('.hit'), h = lastRes.hits[+el.dataset.i], sn = el.querySelector('.snip');
+  const open = t.title === 'expand';
+  t.title = open ? 'collapse' : 'expand';
+  t.innerHTML = ICO[open ? 'collapse' : 'expand'];
+  const html = open ? snipHTML((await api.doc(h.doc_id)).tokens, 0, h.start, h.end)
+                    : snipHTML(h.tokens, h.ctx_start, h.start, h.end);
+  const y = el.getBoundingClientRect().top;
+  sn.innerHTML = html;
+  $('rbody').scrollTop += el.getBoundingClientRect().top - y;
 });
 
 /* ================= init ================= */
