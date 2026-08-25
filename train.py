@@ -2,7 +2,6 @@
 import json
 from datetime import datetime
 from pathlib import Path
-
 import numpy as np
 import torch
 from sae_lens import PretokenizeRunner, PretokenizeRunnerConfig
@@ -92,16 +91,29 @@ for depth in range(START + 1, END + 1):
             cents.append(xp[ix].mean(0, keepdims=True)); 
             continue
         C, labels, inertia = fit(xp[ix], 2)
-        child_nodes += [ix[labels == 0], ix[labels == 1]]
-        child_codes += [code << 1, (code << 1) | 1] # add as "<code>0" and "<code>1";
+        left, right = ix[labels == 0], ix[labels == 1]
+        if len(left) == 0 or len(right) == 0: # edge case: all tokens in one cluster
+            child_nodes.append(ix); 
+            child_codes.append(code << 1); 
+            cents.append(xp[ix].mean(0, keepdims=True)); 
+            continue
+        child_nodes += [left, right]; 
+        child_codes += [code << 1, (code << 1) | 1]; # add as "<code>0" and "<code>1";
         cents.append(C); 
         depth_inertia += inertia
     nodes, codes = child_nodes, child_codes
     save_depth(depth, np.concatenate(cents), nodes, codes, depth_inertia)
 
-# 5. Assign every token (except pos 0) to nearest leaf at the deepest level
+# 5. Assign every token (except pos 0) to nearest leaf at the deepest level + score vs ancestor centroid per depth
 final = np.load(out / f"depth_{END:02}.npz")
 centroids, bcodes, c2 = final["centroids"], final["codes"], np.sum(final["centroids"] ** 2, axis=1)
+leaf_ints = np.array([int(c, 2) for c in bcodes])
+unit, lut = {}, {}  # per depth: unit-norm centroids + code-int -> centroid-row lookup
+for t in range(START, END + 1):
+    z = np.load(out / f"depth_{t:02}.npz")
+    unit[t] = z["centroids"] / np.linalg.norm(z["centroids"], axis=1, keepdims=True)
+    lut[t] = np.zeros(2 ** t, dtype=np.int64)
+    lut[t][[int(c, 2) for c in z["codes"]]] = np.arange(len(z["codes"]))
 print("centroids:", centroids.shape)
 print("bcodes:", bcodes.shape)
 print("c2:", c2.shape)
@@ -112,7 +124,13 @@ with open(out / ASSIGNED, "w") as f:
         a = center_norm(acts[i:i + B], mu).reshape(-1, d)
         # For unit vectors: argmin ||a-c||^2 = ||a||^2 - 2a*c + ||c||^2 = 1 - 2a*c + ||c||^2
         print("a.shape:", a.shape)
-        idx = np.argmin(1 - 2 * (a @ centroids.T) + c2, axis=-1).reshape(B, CONTEXT_SIZE)
+        idx = np.argmin(1 - 2 * (a @ centroids.T) + c2, axis=-1)
+        # mapped cosine (1 + a·c)/2 ∈ [0,1] vs the assigned leaf's ancestor centroid at each depth
+        s = np.stack([(1 + np.einsum("nk,nk->n", a, unit[t][lut[t][leaf_ints[idx] >> (END - t)]])) / 2
+                      for t in range(START, END + 1)], axis=1)
+        s = s.astype(np.float64).round(4).reshape(B, CONTEXT_SIZE, -1)
+        idx = idx.reshape(B, CONTEXT_SIZE)
         for j in range(B):
-            f.write(json.dumps({"cluster_ids": [None] + [str(bcodes[idx[j, p]]) for p in range(1, CONTEXT_SIZE)]}) + "\n")
+            f.write(json.dumps({"cluster_ids": [None] + [str(bcodes[idx[j, p]]) for p in range(1, CONTEXT_SIZE)],
+                                "scores": [None] + [s[j, p].tolist() for p in range(1, CONTEXT_SIZE)]}) + "\n")
 print("run:", out)
