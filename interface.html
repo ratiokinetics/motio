@@ -64,7 +64,13 @@
   .dtok:hover { background:#eee }
   .dtok.mark { background:#ffe600; font-weight:700 }
   .dtok.nul { color:#999 }
-</style>
+  .dtok[data-code] { cursor:pointer }
+  #ttip { position:fixed; z-index:8; display:none; align-items:center; gap:6px;
+          background:#fff; border:2px solid #000; padding:4px 8px;
+          font:12px ui-monospace, Menlo, Consolas, monospace; letter-spacing:1px;
+          pointer-events:none; white-space:nowrap }
+  #ttip .cpy { width:16px; height:16px; line-height:0; flex-shrink:0 }
+  #ttip .cpy svg { display:block; width:16px; height:16px }</style>
 </head>
 <body>
 
@@ -94,6 +100,7 @@
     <div id="rbody"></div>
   </aside>
 </main>
+<div id="ttip"></div>
 
 <script src="data.js"></script>
 <script>
@@ -318,6 +325,29 @@ $('copy').onclick = e => {
   setTimeout(() => { $('copy').innerHTML = COPYSVG; }, 900);
 };
 
+const ttip = $('ttip');
+let tEl = null, tTm = null;
+const tipOff = () => { clearTimeout(tTm); tEl = null; ttip.style.display = 'none'; };
+const tipOn = (el, ok) => {
+  ttip.innerHTML = el.dataset.code + `<span class="cpy">${ok ? CHECKSVG : COPYSVG}</span>`;
+  ttip.style.display = 'flex';
+  const r = el.getBoundingClientRect(), w = ttip.offsetWidth, h = ttip.offsetHeight;
+  ttip.style.left = Math.max(4, Math.min(r.left + (r.width - w) / 2, innerWidth - w - 4)) + 'px';
+  ttip.style.top = (r.top > h + 8 ? r.top - h - 6 : r.bottom + 6) + 'px';
+};
+$('rbody').addEventListener('mouseover', e => {
+  const t = e.target.closest('.dtok[data-code]');
+  if (!t || t === tEl) return;
+  clearTimeout(tTm); ttip.style.display = 'none'; tEl = t;
+  tTm = setTimeout(() => tipOn(t), 1000);
+});
+$('rbody').addEventListener('mouseout', e => {
+  if (!tEl || tEl.contains(e.relatedTarget)) return;
+  if (e.target.closest('.dtok[data-code]') !== tEl) return;
+  tipOff();
+});
+$('rbody').addEventListener('scroll', tipOff, { passive: true });
+
 const ICO = {                                               // boxed ↗↙ : out = expand, in = collapse
   expand: '<svg viewBox="0 0 16 16"><rect width="16" height="16" rx="3" fill="#000"/>' +
     '<path d="M9 3.5h3.5V7M12.5 3.5 9 7M7 12.5H3.5V9M3.5 12.5 7 9" fill="none" stroke="#fff" stroke-width="1.4" stroke-linecap="square"/></svg>',
@@ -326,12 +356,13 @@ const ICO = {                                               // boxed ↗↙ : ou
 };
 const tokSpan = (t, pos, s, e) =>
   `<span class="dtok${pos >= s && pos <= e ? ' mark' : ''}${t.code ? '' : ' nul'}"` +
-  (t.code ? ` title="${t.code}"` : '') + `>` + esc(t.text) + `</span>`;
+  (t.code ? ` data-code="${t.code}"` : '') + `>` + esc(t.text) + `</span>`;
 const snipHTML = (toks, first, s, e) =>                    // first = doc position of toks[0]
   (first > 1 ? '\u2026 ' : '') + toks.map((t, i) => tokSpan(t, first + i, s, e)).join('') +
   (first + toks.length < SEQ ? ' \u2026' : '');
 
 function renderHits(res) {
+  tipOff();
   $('rbody').innerHTML =
     `<div class="rhead">top ${res.hits.length} of ${res.total.toLocaleString()} matches \u00b7 ranked by similarity</div>` +
     res.hits.map((h, i) =>
@@ -348,6 +379,13 @@ function renderHits(res) {
 }
 
 $('rbody').addEventListener('click', e => {
+  const tok = e.target.closest('.dtok[data-code]');
+  if (tok) {
+    navigator.clipboard.writeText(tok.dataset.code);
+    clearTimeout(tTm); tEl = tok; tipOn(tok, true);
+    setTimeout(() => { if (tEl === tok) tipOn(tok, false); }, 900);
+    return;
+  }
   const t = e.target.closest('.xp');
   if (!t) return;                                          // pin hit header; body grows below
   const el = t.closest('.hit'), h = lastRes.hits[+el.dataset.i], sn = el.querySelector('.snip');
@@ -356,6 +394,7 @@ $('rbody').addEventListener('click', e => {
   t.innerHTML = ICO[open ? 'collapse' : 'expand'];
   const html = open ? snipHTML(doc(h.doc_id).tokens, 0, h.start, h.end)
                     : snipHTML(h.tokens, h.ctx_start, h.start, h.end);
+  tipOff();
   const y = el.getBoundingClientRect().top;
   sn.innerHTML = html;
   $('rbody').scrollTop += el.getBoundingClientRect().top - y;
