@@ -13,8 +13,7 @@ python train.py
 ### Interface
 
 ```
-cd docs
-python export_static.py   # packs run artifacts into data.js - tune hyperparameters 
-open index.html       # fully static — no server
+python frontend/server.py
 ```
 
+Boots run artifacts into RAM and serves http://localhost:8000
