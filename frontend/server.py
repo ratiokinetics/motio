@@ -1,5 +1,6 @@
-"""Boot run artifacts into RAM; serve /tree, /search, /docs/{id} + static UI."""
-import json, re
+"""Boot run artifacts into RAM; serve /tree, /search, /docs/{id}, /labels + static UI."""
+import json, re, threading
+from datetime import datetime, timezone
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -84,6 +85,19 @@ def build_tree():
 
 TREE = build_tree()
 
+LABELS_PATH = RUN_DIR / "labels.json"
+LABELS = json.loads(LABELS_PATH.read_text()) if LABELS_PATH.exists() else []
+LABELS_LOCK = threading.Lock()
+
+
+def add_label(user, label, prefixes):
+    entry = {"user": user, "label": label, "prefixes": prefixes,
+             "ts": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+    with LABELS_LOCK:
+        LABELS.append(entry)
+        LABELS_PATH.write_text(json.dumps(LABELS, ensure_ascii=False, indent=1))
+    return entry
+
 
 def search(prefixes):
     W, m = LEAF_CODES.shape[1], len(prefixes)
@@ -123,6 +137,8 @@ class Handler(SimpleHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/tree":
             return self._json(TREE)
+        if self.path == "/labels":
+            return self._json({"labels": LABELS})
         if m := re.fullmatch(r"/docs/(\d+)", self.path):
             i = int(m[1])
             return self._json(doc(i) if i < len(TOKEN_IDS) else {"error": "no such doc"},
@@ -132,14 +148,24 @@ class Handler(SimpleHTTPRequestHandler):
         super().do_GET()
 
     def do_POST(self):
-        if self.path != "/search":
-            return self._json({"error": "not found"}, 404)
         try:
-            prefixes = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)))["prefixes"]
-            assert prefixes and all(isinstance(p, str) and PREFIX_RE.fullmatch(p) for p in prefixes)
+            body = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)))
+            assert isinstance(body, dict)
         except Exception:
-            return self._json({"error": f"prefixes must be a non-empty list of {START}-{END} bit binary strings"}, 400)
-        self._json(search(prefixes))
+            body = {}
+        prefixes = body.get("prefixes")
+        ok = isinstance(prefixes, list) and prefixes and \
+            all(isinstance(p, str) and PREFIX_RE.fullmatch(p) for p in prefixes)
+        if self.path == "/search":
+            if not ok:
+                return self._json({"error": f"prefixes must be a non-empty list of {START}-{END} bit binary strings"}, 400)
+            return self._json(search(prefixes))
+        if self.path == "/labels":
+            user, label = str(body.get("user", "")).strip()[:40], str(body.get("label", "")).strip()[:120]
+            if not (ok and user and label):
+                return self._json({"error": "need user, label and a valid prefix list"}, 400)
+            return self._json(add_label(user, label, prefixes))
+        self._json({"error": "not found"}, 404)
 
 
 if __name__ == "__main__":

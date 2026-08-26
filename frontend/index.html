@@ -26,7 +26,7 @@
   #rhs { flex:2; min-width:0; display:flex; flex-direction:column }
 
   /* ---- top quadrant: query (short and fat) ---- */
-  #query { border-bottom:2px solid #000; padding:14px }
+  #query { position:relative; border-bottom:2px solid #000; padding:14px }
   #chips { display:flex; flex-wrap:wrap; gap:8px; align-items:center;
            border:2px solid #000; padding:8px 12px }
   #clist { display:contents }
@@ -38,8 +38,21 @@
        font:16px ui-monospace, Menlo, monospace; letter-spacing:2px }
   #q.err { color:#e02000 }
   #q:disabled { opacity:.35 }
-  #copy { margin-left:auto; width:16px; height:16px; line-height:0; cursor:pointer; flex-shrink:0 }
-  #copy svg { display:block; width:16px; height:16px }
+  #tools { margin-left:auto; display:flex; align-items:center; gap:10px; flex-shrink:0 }
+  #tools a { width:16px; height:16px; line-height:0; cursor:pointer }
+  #tools svg { display:block; width:16px; height:16px }
+
+  /* ---- label popovers ---- */
+  .pop { position:absolute; right:14px; top:100%; z-index:7; display:none;
+         flex-direction:column; gap:8px; background:#fff; border:2px solid #000;
+         padding:10px; min-width:280px; max-width:60%; max-height:50vh; overflow-y:auto }
+  .pop.open { display:flex }
+  .pop input { border:2px solid #000; outline:none; padding:6px 8px;
+               font:14px ui-monospace, Menlo, monospace }
+  .srow { cursor:pointer; border:1px solid #ccc; padding:6px 8px }
+  .srow:hover { border-color:#000 }
+  .who { color:#555; font-size:12px }
+  .seq { font-size:10px; color:#999; letter-spacing:1px; word-break:break-all }
 
   /* ---- bottom quadrant: map (vertical depth rail left of grid) ---- */
   #mapbox { flex:1; min-height:0; display:grid; grid-template-columns:auto 1fr; grid-template-rows:1fr auto }
@@ -86,10 +99,21 @@
   <section id="lhs">
     <div id="query">
       <div id="chips"><span id="clist"></span><input id="q"
-        placeholder="010110 0010000101" autocomplete="off" spellcheck="false" disabled><a
+        placeholder="010110 0010000101" autocomplete="off" spellcheck="false" disabled><span id="tools"><a
         id="copy" title="copy sequence" hidden><svg viewBox="0 0 16 16"><path d="M5.5 5.5V1.5h9v9h-4"
         fill="none" stroke="#000" stroke-width="1.4"/><rect x="1.5" y="5.5" width="9" height="9"
-        fill="#fff" stroke="#000" stroke-width="1.4"/></svg></a></div>
+        fill="#fff" stroke="#000" stroke-width="1.4"/></svg></a><a
+        id="send" title="label this sequence" hidden><svg viewBox="0 0 16 16"><path d="M14.5 1.5 1.5 6.5l4.5 2.2L7.6 14.5z"
+        fill="none" stroke="#000" stroke-width="1.4" stroke-linejoin="round"/><path d="M14.5 1.5 6 8.7"
+        fill="none" stroke="#000" stroke-width="1.4"/></svg></a><a
+        id="saved" title="submitted labels"><svg viewBox="0 0 16 16"><path d="M2.5 3.5h11M2.5 8h11M2.5 12.5h11"
+        fill="none" stroke="#000" stroke-width="1.4"/></svg></a></span></div>
+      <div id="spop" class="pop">
+        <input id="suser" placeholder="username" autocomplete="off" spellcheck="false" maxlength="40">
+        <input id="slabel" placeholder="label" autocomplete="off" spellcheck="false" maxlength="120">
+        <button id="ssave" class="dbtn">save</button>
+      </div>
+      <div id="lpop" class="pop"></div>
     </div>
     <div id="mapbox">
       <div id="mapbar"><span id="depths"></span></div>
@@ -114,6 +138,9 @@ const api = {
   search: p        => fetch('/search', { method: 'POST', headers: { 'Content-Type': 'application/json' },
                                          body: JSON.stringify({ prefixes: p }) }).then(r => r.json()),
   doc:    i        => fetch('/docs/' + i).then(r => r.json()),
+  labels: ()       => fetch('/labels').then(r => r.json()),
+  save:   b        => fetch('/labels', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                         body: JSON.stringify(b) }).then(r => r.json()),
 };
 
 /* ================= map ================= */
@@ -233,7 +260,8 @@ async function update() {                                  // single door: runs 
   $('clist').innerHTML = S.prefixes.map((p, i) =>
     `<span class="chip">${p}<a data-i="${i}" title="remove">×</a></span>`).join('');
   $('q').placeholder = S.prefixes.length ? '' : '010110 0010000101';
-  $('copy').hidden = !S.prefixes.length;
+  $('copy').hidden = $('send').hidden = !S.prefixes.length;
+  if (!S.prefixes.length) $('spop').classList.remove('open');
   if (!S.prefixes.length) { lastRes = null; draw(); $('rbody').innerHTML = ''; return; }
   const res = await api.search(S.prefixes);
   if (id !== seq) return;                                  // stale response
@@ -263,6 +291,47 @@ $('copy').onclick = e => {
   navigator.clipboard.writeText(S.prefixes.join(' '));
   $('copy').innerHTML = CHECKSVG;
   setTimeout(() => { $('copy').innerHTML = COPYSVG; }, 900);
+};
+
+/* ================= labels ================= */
+const SENDSVG = $('send').innerHTML;
+let savedLabels = [];
+const closePops = () => { $('spop').classList.remove('open'); $('lpop').classList.remove('open'); };
+document.addEventListener('click', closePops);
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closePops(); });
+$('spop').onclick = e => e.stopPropagation();
+
+$('send').onclick = e => {
+  e.stopPropagation(); $('lpop').classList.remove('open');
+  if (!$('spop').classList.toggle('open')) return;
+  $('suser').value = $('suser').value || localStorage.motioUser || '';
+  ($('suser').value ? $('slabel') : $('suser')).focus();
+};
+$('spop').onkeydown = e => { if (e.key === 'Enter') $('ssave').click(); };
+$('ssave').onclick = async () => {
+  const user = $('suser').value.trim(), label = $('slabel').value.trim();
+  if (!user || !label || !S.prefixes.length) return;
+  localStorage.motioUser = user;
+  const res = await api.save({ user, label, prefixes: S.prefixes });
+  if (res.error) return;
+  closePops(); $('slabel').value = '';
+  $('send').innerHTML = CHECKSVG;
+  setTimeout(() => { $('send').innerHTML = SENDSVG; }, 900);
+};
+
+$('saved').onclick = async e => {
+  e.stopPropagation(); $('spop').classList.remove('open');
+  if (!$('lpop').classList.toggle('open')) return;
+  savedLabels = (await api.labels()).labels.slice().reverse();  // newest first
+  $('lpop').innerHTML = savedLabels.length ? savedLabels.map((l, i) =>
+    `<div class="srow" data-i="${i}"><b>${esc(l.label)}</b> <span class="who">\u00b7 ${esc(l.user)}</span>` +
+    `<div class="seq">${l.prefixes.join(' ')}</div></div>`).join('')
+    : '<span class="who">nothing submitted yet</span>';
+};
+$('lpop').onclick = e => {
+  e.stopPropagation();
+  const r = e.target.closest('.srow');
+  if (r) { closePops(); setPrefixes([...savedLabels[+r.dataset.i].prefixes]); }
 };
 
 const ttip = $('ttip');
