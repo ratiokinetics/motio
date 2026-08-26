@@ -33,22 +33,23 @@
           font:16px ui-monospace, Menlo, monospace; letter-spacing:2px }
   .chip a { cursor:pointer; font-weight:700 }
   .chip a:hover { color:#e02000 }
-  #q { flex:1; min-width:180px; border:none; outline:none; padding:6px 0;
+  #q { flex:1; min-width:180px; border:none; outline:none; padding:8px 0; /* = chip 6px pad + 2px border: row height stays put when chips appear */
        font:16px ui-monospace, Menlo, monospace; letter-spacing:2px }
   #q.err { color:#e02000 }
   #q:disabled { opacity:.35 }
   #copy { margin-left:auto; width:16px; height:16px; line-height:0; cursor:pointer; flex-shrink:0 }
   #copy svg { display:block; width:16px; height:16px }
 
-  /* ---- bottom quadrant: map ---- */
-  #mapbox { flex:1; min-height:0; display:flex; flex-direction:column }
-  #mapbar { display:flex; align-items:center; gap:4px; padding:8px 14px }
-  .dbtn { border:1px solid #000; background:#fff; padding:2px 9px; cursor:pointer;
-          font:12px ui-monospace, monospace }
+  /* ---- bottom quadrant: map (vertical depth rail left of grid) ---- */
+  #mapbox { flex:1; min-height:0; display:grid; grid-template-columns:auto 1fr; grid-template-rows:1fr auto }
+  #mapbar { display:flex; align-items:center; padding:8px 0 8px 14px }
+  #depths { display:flex; flex-direction:column; gap:4px }
+  .dbtn { border:1px solid #000; background:#fff; padding:6px 14px; cursor:pointer;
+          font:15px ui-monospace, monospace }
   .dbtn.on { background:#000; color:#fff }
-  #canvaswrap { flex:1; min-height:0; display:flex; align-items:center; justify-content:center; padding:0 14px }
+  #canvaswrap { min-width:0; min-height:0; display:flex; align-items:center; justify-content:center; padding:0 14px }
   canvas { border:2px solid #000; cursor:crosshair }
-  #hoverinfo { padding:6px 14px 10px; font-size:12px; color:#333; min-height:29px }
+  #hoverinfo { grid-column:1 / -1; padding:6px 14px 10px; font-size:12px; color:#333; min-height:29px }
 
   /* ---- rhs: hits ---- */
   #rbody { flex:1; overflow-y:auto }
