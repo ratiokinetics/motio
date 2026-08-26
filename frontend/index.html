@@ -16,8 +16,9 @@
 
   /* ---- boot overlay ---- */
   #boot { position:fixed; inset:0; z-index:9; background:#fff;
-          display:flex; align-items:center; justify-content:center }
-  #boot img { width:320px; height:320px; animation:spin 4s linear infinite }
+          display:flex; flex-direction:column; align-items:center; justify-content:center; gap:28px }
+  #boot img { width:min(320px, 60vw); height:auto; aspect-ratio:1; animation:spin 4s linear infinite }
+  #bootmsg { font-size:14px; letter-spacing:1px; color:#000 }
   @keyframes spin { to { transform:rotate(360deg) } }
 
   main { flex:1; display:flex; min-height:0 }
@@ -75,7 +76,7 @@
 </head>
 <body>
 
-<div id="boot"><img src="lie.png" alt="motio"></div>
+<div id="boot"><img src="lie.png" alt="motio"><p id="bootmsg" hidden>not supported on mobile</p></div>
 
 <header>
   <h1>MOTIO</h1>
@@ -143,11 +144,11 @@ const followOf = c => {                                    // follow-up count ag
 
 function arrow(a, b) {
   const dx = b.x - a.x, dy = b.y - a.y, L = Math.hypot(dx, dy);
-  const ux = dx / L, uy = dy / L, s = Math.min(7, L * .6); // clamp head so short arrows don't overshoot
+  const ux = dx / L, uy = dy / L, s = Math.min(12, L * .6); // clamp head so short arrows don't overshoot
   ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x - s * ux, b.y - s * uy); ctx.stroke();
   ctx.beginPath(); ctx.moveTo(b.x, b.y);
-  ctx.lineTo(b.x - s * ux + s * .45 * uy, b.y - s * uy - s * .45 * ux);
-  ctx.lineTo(b.x - s * ux - s * .45 * uy, b.y - s * uy + s * .45 * ux);
+  ctx.lineTo(b.x - s * ux + s * .5 * uy, b.y - s * uy - s * .5 * ux);
+  ctx.lineTo(b.x - s * ux - s * .5 * uy, b.y - s * uy + s * .5 * ux);
   ctx.closePath(); ctx.fill();
 }
 
@@ -180,11 +181,11 @@ function draw() {
   }
   for (const p of S.prefixes) {                            // queried clusters
     const [x, y, w, h] = pxOf(p);
-    ctx.strokeStyle = '#e02000'; ctx.lineWidth = 3;
-    ctx.strokeRect(x + 1.5, y + 1.5, w - 3, h - 3); ctx.lineWidth = 1;
+    ctx.strokeStyle = '#e02000'; ctx.lineWidth = 5;
+    ctx.strokeRect(x + 2.5, y + 2.5, w - 5, h - 5); ctx.lineWidth = 1;
   }
   if (S.prefixes.length > 1) {                             // arrows connect the sequence in order
-    ctx.strokeStyle = ctx.fillStyle = '#e02000'; ctx.lineWidth = 2;
+    ctx.strokeStyle = ctx.fillStyle = '#e02000'; ctx.lineWidth = 4;
     const ctr = S.prefixes.map(p => { const [x, y, w, h] = pxOf(p);
                                       return { x: x + w / 2, y: y + h / 2 }; });
     for (let i = 1; i < ctr.length; i++)                   // same cluster twice: nothing to draw
@@ -342,6 +343,10 @@ $('rbody').addEventListener('click', async e => {
 
 /* ================= init ================= */
 (async () => {
+  if (matchMedia('(max-width: 800px)').matches) {         // dual-pane UI needs desktop width
+    $('bootmsg').hidden = false;
+    return;
+  }
   $('hoverinfo').textContent = 'booting\u2026';
   try {
     S.tree = await api.tree();
