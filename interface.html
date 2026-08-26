@@ -20,16 +20,20 @@
 
   /* ---- top quadrant: query (short and fat) ---- */
   #query { border-bottom:2px solid #000; padding:14px }
-  #qform { display:flex; gap:8px }
-  #q { flex:1; min-width:0; border:2px solid #000; padding:10px 12px; outline:none;
-       font:20px ui-monospace, Menlo, monospace; letter-spacing:2px }
-  #q:focus { outline:3px solid #ffe600 }
-  #q.err { border-color:#e02000; outline:3px solid #e02000 }
-  #qform button { border:2px solid #000; background:#fff; color:#000; cursor:pointer;
-                  padding:0 24px; font:700 15px ui-monospace, monospace; letter-spacing:1px }
-  #qform button:hover { background:#000; color:#fff }
-  #qform button:active { background:#ffe600; color:#000 }
-  #qform :disabled { opacity:.35; cursor:default }
+  #chips { display:flex; flex-wrap:wrap; gap:8px; align-items:center;
+           border:2px solid #000; padding:8px 12px }
+  #chips:focus-within { outline:3px solid #ffe600 }
+  #clist { display:contents }
+  .chip { display:flex; gap:8px; border:2px solid #000; padding:6px 10px;
+          font:16px ui-monospace, Menlo, monospace; letter-spacing:2px }
+  .chip a { cursor:pointer; font-weight:700 }
+  .chip a:hover { color:#e02000 }
+  #q { flex:1; min-width:180px; border:none; outline:none; padding:6px 0;
+       font:16px ui-monospace, Menlo, monospace; letter-spacing:2px }
+  #q.err { color:#e02000 }
+  #q:disabled { opacity:.35 }
+  #copy { margin-left:auto; width:16px; height:16px; line-height:0; cursor:pointer; flex-shrink:0 }
+  #copy svg { display:block; width:16px; height:16px }
 
   /* ---- bottom quadrant: map ---- */
   #mapbox { flex:1; min-height:0; display:flex; flex-direction:column }
@@ -66,11 +70,11 @@
 <main>
   <section id="lhs">
     <div id="query">
-      <form id="qform">
-        <input id="q" placeholder="010110 0010000101" autocomplete="off" spellcheck="false" disabled>
-        <button type="submit" disabled>SEARCH</button>
-        <button type="button" id="reset" disabled>RESET</button>
-      </form>
+      <div id="chips"><span id="clist"></span><input id="q"
+        placeholder="010110 0010000101" autocomplete="off" spellcheck="false" disabled><a
+        id="copy" title="copy sequence" hidden><svg viewBox="0 0 16 16"><path d="M5.5 5.5V1.5h9v9h-4"
+        fill="none" stroke="#000" stroke-width="1.4"/><rect x="1.5" y="5.5" width="9" height="9"
+        fill="#fff" stroke="#000" stroke-width="1.4"/></svg></a></div>
     </div>
     <div id="mapbox">
       <div id="mapbar"><span id="depths"></span></div>
@@ -251,30 +255,46 @@ cv.onmousemove = e => {
   }
 };
 cv.onmouseleave = () => { if (!S.tree) return; S.hover = null; draw(); $('hoverinfo').textContent = '\u00a0'; };
-cv.onmousedown = e => e.preventDefault();                  // keep #q focused; blur resets scrollLeft
-cv.onclick = () => {                                       // click cells to build the sequence
-  if (!S.hover) return;
-  const q = $('q'), v = q.value.trim();
-  q.value = v ? v + ' ' + S.hover.code : S.hover.code;
-  q.focus(); q.setSelectionRange(q.value.length, q.value.length);
-  q.scrollLeft = q.scrollWidth;
-  runSearch();
-};
+cv.onclick = () => { if (S.hover) setPrefixes([...S.prefixes, S.hover.code]); };
 
 /* ================= search + rhs ================= */
 let lastRes = null;
 
-function runSearch() {
-  const q = $('q'), raw = q.value.trim().split(/\s+/).filter(Boolean);
-  const bad = !raw.length || raw.some(p => p.length < START || p.length > END || !/^[01]+$/.test(p));
-  q.classList.toggle('err', bad);
-  if (bad) { S.prefixes = []; lastRes = null; $('rbody').innerHTML = ''; draw(); return; }
-  const res = search(raw);
-  S.prefixes = raw;
+function update() {                                        // single door: runs on every sequence change
+  $('clist').innerHTML = S.prefixes.map((p, i) =>
+    `<span class="chip">${p}<a data-i="${i}" title="remove">×</a></span>`).join('');
+  $('q').placeholder = S.prefixes.length ? '' : '010110 0010000101';
+  $('copy').hidden = !S.prefixes.length;
   draw();
-  lastRes = res;
-  renderHits(res);
+  if (!S.prefixes.length) { lastRes = null; $('rbody').innerHTML = ''; return; }
+  lastRes = search(S.prefixes);
+  renderHits(lastRes);
 }
+const setPrefixes = a => { S.prefixes = a; update(); };
+
+$('chips').onclick = e => {
+  const i = e.target.dataset.i;
+  if (i !== undefined) setPrefixes(S.prefixes.filter((_, j) => j !== +i));
+  else $('q').focus();
+};
+$('q').onkeydown = e => {                                  // input only ever appends to the sequence
+  if (e.key !== 'Enter') return;
+  const raw = $('q').value.trim().split(/\s+/).filter(Boolean);
+  const bad = raw.some(p => p.length < START || p.length > END || !/^[01]+$/.test(p));
+  $('q').classList.toggle('err', bad);
+  if (bad || !raw.length) return;
+  $('q').value = '';
+  setPrefixes([...S.prefixes, ...raw]);
+};
+$('q').oninput = () => $('q').classList.remove('err');
+const COPYSVG = $('copy').innerHTML;
+const CHECKSVG = '<svg viewBox="0 0 16 16"><path d="M2.5 8.5 6.5 12.5 13.5 3.5" fill="none" stroke="#000" stroke-width="2"/></svg>';
+$('copy').onclick = e => {
+  e.stopPropagation();                                     // keep #chips from stealing focus to #q
+  navigator.clipboard.writeText(S.prefixes.join(' '));
+  $('copy').innerHTML = CHECKSVG;
+  setTimeout(() => { $('copy').innerHTML = COPYSVG; }, 900);
+};
 
 const ICO = {                                               // boxed ↗↙ : out = expand, in = collapse
   expand: '<svg viewBox="0 0 16 16"><rect width="16" height="16" rx="3" fill="#000"/>' +
@@ -319,13 +339,6 @@ $('rbody').addEventListener('click', e => {
 });
 
 /* ================= init ================= */
-$('qform').onsubmit = e => { e.preventDefault(); runSearch(); };
-$('reset').onclick = () => {
-  $('q').value = ''; $('q').classList.remove('err');
-  S.prefixes = []; lastRes = null;
-  draw();
-  $('rbody').innerHTML = '';
-};
 (async () => {
   $('hoverinfo').textContent = 'booting\u2026';
   try {
@@ -336,8 +349,8 @@ $('reset').onclick = () => {
     $('hoverinfo').style.color = '#e02000';
     return;
   }
-  for (const el of $('qform').elements) el.disabled = false;
   $('hoverinfo').textContent = '\u00a0';
+  $('q').disabled = false;
   const bar = $('depths');
   for (let d = START; d <= END; d++) {
     const b = document.createElement('button');
@@ -347,6 +360,7 @@ $('reset').onclick = () => {
       draw(); };
     bar.appendChild(b);
   }
+  update();
   resize();
 })();
 </script>
