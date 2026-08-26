@@ -1,0 +1,432 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>motio</title>
+<style>
+  * { box-sizing:border-box; margin:0 }
+  html, body { height:100% }
+  body { display:flex; flex-direction:column; background:#fff; color:#000;
+         font:14px/1.45 ui-monospace, Menlo, Consolas, monospace }
+  b { font-weight:700 }
+
+  header { display:flex; align-items:baseline; gap:14px; padding:6px 14px; background:#000; color:#fff }
+  header h1 { font-size:16px; letter-spacing:2px }
+
+  /* ---- boot overlay ---- */
+  #boot { position:fixed; inset:0; z-index:9; background:#fff;
+          display:flex; align-items:center; justify-content:center }
+  #boot img { width:320px; height:320px; animation:spin 4s linear infinite }
+  @keyframes spin { to { transform:rotate(360deg) } }
+
+  main { flex:1; display:flex; min-height:0 }
+  #lhs { flex:3; min-width:0; display:flex; flex-direction:column; border-right:2px solid #000 }
+  #rhs { flex:2; min-width:0; display:flex; flex-direction:column }
+
+  /* ---- top quadrant: query (short and fat) ---- */
+  #query { border-bottom:2px solid #000; padding:14px }
+  #chips { display:flex; flex-wrap:wrap; gap:8px; align-items:center;
+           border:2px solid #000; padding:8px 12px }
+  #clist { display:contents }
+  .chip { display:flex; gap:8px; border:2px solid #000; padding:6px 10px;
+          font:16px ui-monospace, Menlo, monospace; letter-spacing:2px }
+  .chip a { cursor:pointer; font-weight:700 }
+  .chip a:hover { color:#e02000 }
+  #q { flex:1; min-width:180px; border:none; outline:none; padding:6px 0;
+       font:16px ui-monospace, Menlo, monospace; letter-spacing:2px }
+  #q.err { color:#e02000 }
+  #q:disabled { opacity:.35 }
+  #copy { margin-left:auto; width:16px; height:16px; line-height:0; cursor:pointer; flex-shrink:0 }
+  #copy svg { display:block; width:16px; height:16px }
+
+  /* ---- bottom quadrant: map ---- */
+  #mapbox { flex:1; min-height:0; display:flex; flex-direction:column }
+  #mapbar { display:flex; align-items:center; gap:4px; padding:8px 14px }
+  .dbtn { border:1px solid #000; background:#fff; padding:2px 9px; cursor:pointer;
+          font:12px ui-monospace, monospace }
+  .dbtn.on { background:#000; color:#fff }
+  #canvaswrap { flex:1; min-height:0; display:flex; align-items:center; justify-content:center; padding:0 14px }
+  canvas { border:2px solid #000; cursor:crosshair }
+  #hoverinfo { padding:6px 14px 10px; font-size:12px; color:#333; min-height:29px }
+
+  /* ---- rhs: hits ---- */
+  #rbody { flex:1; overflow-y:auto }
+  .rhead { padding:8px 12px; font-size:12px; color:#555; border-bottom:2px solid #000 }
+  .hit { padding:10px 12px; border-bottom:1px solid #ccc }
+  .hit .meta { display:flex; align-items:center; gap:10px; font-size:12px; margin-bottom:2px }
+  .docid { font-weight:700 }
+  .xp { margin-left:auto; cursor:pointer; width:16px; height:16px; flex-shrink:0; line-height:0 }
+  .xp svg { display:block; width:16px; height:16px }
+  .codes { font-size:10px; color:#999; letter-spacing:1px; margin-bottom:4px }
+  .codes b { color:#000; background:#ffe600 }
+  .snip { line-height:1.8; white-space:pre-wrap; word-break:break-word }
+  .dtok:hover { background:#eee }
+  .dtok.mark { background:#ffe600; font-weight:700 }
+  .dtok.nul { color:#999 }
+  .dtok[data-code] { cursor:pointer }
+  #ttip { position:fixed; z-index:8; display:none; align-items:center; gap:6px;
+          background:#fff; border:2px solid #000; padding:4px 8px;
+          font:12px ui-monospace, Menlo, Consolas, monospace; letter-spacing:1px;
+          pointer-events:none; white-space:nowrap }
+  #ttip .cpy { width:16px; height:16px; line-height:0; flex-shrink:0 }
+  #ttip .cpy svg { display:block; width:16px; height:16px }</style>
+</head>
+<body>
+
+<div id="boot"><img src="lie.png" alt="motio"></div>
+
+<header>
+  <h1>MOTIO</h1>
+</header>
+
+<main>
+  <section id="lhs">
+    <div id="query">
+      <div id="chips"><span id="clist"></span><input id="q"
+        placeholder="010110 0010000101" autocomplete="off" spellcheck="false" disabled><a
+        id="copy" title="copy sequence" hidden><svg viewBox="0 0 16 16"><path d="M5.5 5.5V1.5h9v9h-4"
+        fill="none" stroke="#000" stroke-width="1.4"/><rect x="1.5" y="5.5" width="9" height="9"
+        fill="#fff" stroke="#000" stroke-width="1.4"/></svg></a></div>
+    </div>
+    <div id="mapbox">
+      <div id="mapbar"><span id="depths"></span></div>
+      <div id="canvaswrap"><canvas id="map"></canvas></div>
+      <div id="hoverinfo">&nbsp;</div>
+    </div>
+  </section>
+
+  <aside id="rhs">
+    <div id="rbody"></div>
+  </aside>
+</main>
+<div id="ttip"></div>
+
+<script src="data.js"></script>
+<script>
+'use strict';
+const START = 6, END = 11, SEQ = 512, MAX_HITS = 200, CTX = 25, DEPS = END - START + 1;
+const $ = id => document.getElementById(id);
+const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+
+/* ================= data (from data.js) ================= */
+const D = {};                                              // vocab, N, tid (N*512), leaf (N*511)
+
+async function loadData() {
+  if (!window.MOTIO_B64) throw new Error('data.js not found');
+  const raw = Uint8Array.from(atob(window.MOTIO_B64), c => c.charCodeAt(0));
+  const buf = await new Response(new Response(raw).body
+    .pipeThrough(new DecompressionStream('gzip'))).arrayBuffer();
+  const [vlen, n] = new Uint32Array(buf, 0, 2);
+  D.vocab = JSON.parse(new TextDecoder().decode(new Uint8Array(buf, 8, vlen)));
+  D.N = n;
+  D.tid = new Uint32Array(buf, 8 + vlen, n * SEQ);
+  D.leaf = new Uint16Array(buf, 8 + vlen + n * SEQ * 4, n * (SEQ - 1));
+  D.score = new Uint8Array(buf, 8 + vlen + n * SEQ * 4 + n * (SEQ - 1) * 2, n * (SEQ - 1) * DEPS);
+}
+
+const codeStr = c => c.toString(2).padStart(END, '0');
+const toks = (d, ws, we) => Array.from({ length: we - ws + 1 }, (_, i) => {
+  const p = ws + i;
+  return { text: D.vocab[D.tid[d * SEQ + p]],
+           code: p ? codeStr(D.leaf[d * (SEQ - 1) + p - 1]) : null };
+});
+const doc = i => ({ tokens: toks(i, 0, SEQ - 1) });
+
+function buildTree() {                                     // port of server build_tree
+  const seen = new Uint8Array(1 << END);
+  for (let i = 0; i < D.leaf.length; i++) seen[D.leaf[i]] = 1;
+  const depth = {};                                        // depth -> set of int codes
+  for (let d = START; d <= END; d++) {
+    depth[d] = new Set();
+    for (let c = 0; c < seen.length; c++) if (seen[c]) depth[d].add(c >> (END - d));
+  }
+  const nodes = [];
+  const walk = code => {
+    const d = code.length, kids = [code + '0', code + '1'];
+    const alive = d < END && kids.every(k => depth[d + 1].has(parseInt(k, 2)));
+    nodes.push({ code, depth: d, dead: d < END && !alive });
+    if (alive) kids.forEach(walk);
+  };
+  [...depth[START]].sort((a, b) => a - b).forEach(c => walk(c.toString(2).padStart(START, '0')));
+  return { nodes };
+}
+
+function search(prefixes) {                                // port of server search
+  const W = SEQ - 1, m = prefixes.length, matches = [];
+  const sh = prefixes.map(p => END - p.length), val = prefixes.map(p => parseInt(p, 2));
+  const di = prefixes.map(p => p.length - START);          // score column per prefix depth
+  const follow = new Uint32Array(1 << END);                // leaf code right after each match
+  for (let d = 0; d < D.N; d++) {
+    const row = d * W;
+    for (let c = 0; c + m <= W; c++) {
+      let j = 0;
+      while (j < m && (D.leaf[row + c + j] >> sh[j]) === val[j]) j++;
+      if (j < m) continue;
+      if (c + m < W) follow[D.leaf[row + c + m]]++;
+      let lg = 0;                                          // geometric mean of per-token similarity
+      for (j = 0; j < m; j++) lg += Math.log(D.score[(row + c + j) * DEPS + di[j]] / 255);
+      matches.push({ d, c, score: Math.exp(lg / m) });
+    }
+  }
+  matches.sort((a, b) => b.score - a.score);
+  const hits = matches.slice(0, MAX_HITS).map(({ d, c, score }) => {
+    const start = c + 1, end = c + m;
+    const ws = Math.max(1, start - CTX), we = Math.min(SEQ - 1, end + CTX);
+    return { doc_id: d, start, end, score, ctx_start: ws, tokens: toks(d, ws, we) };
+  });
+  return { total: matches.length, hits, follow };
+}
+
+/* ================= map ================= */
+const S = { tree: null, depth: START, prefixes: [], hover: null };
+const cv = $('map'), ctx = cv.getContext('2d');
+let CS = 0;
+
+function rectOf(code) {                                    // SPECS layout: even bit->X, odd->Y, 0=left/bottom
+  let x = 0, y = 0, w = 1, h = 1;
+  for (let i = 0; i < code.length; i++)
+    if (i % 2 === 0) { w /= 2; if (code[i] === '1') x += w; }
+    else             { h /= 2; if (code[i] === '1') y += h; }
+  return { x, y, w, h };
+}
+function pxOf(code) {                                      // y flipped: unit-square bottom -> canvas bottom
+  const r = rectOf(code);
+  const x = Math.round(r.x * CS), y = Math.round((1 - r.y - r.h) * CS);
+  return [x, y, Math.round((r.x + r.w) * CS) - x, Math.round((1 - r.y) * CS) - y];
+}
+const cells = () => S.tree.nodes.filter(n => n.depth === S.depth || (n.dead && n.depth < S.depth));
+const followOf = c => {                                    // follow-up count aggregated at cell depth
+  if (!lastRes) return 0;
+  const s = END - c.depth, v = parseInt(c.code, 2) << s;
+  let n = 0;
+  for (let k = 0; k < 1 << s; k++) n += lastRes.follow[v + k];
+  return n;
+};
+
+function arrow(a, b) {
+  const dx = b.x - a.x, dy = b.y - a.y, L = Math.hypot(dx, dy);
+  const ux = dx / L, uy = dy / L, s = Math.min(7, L * .6); // clamp head so short arrows don't overshoot
+  ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x - s * ux, b.y - s * uy); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(b.x, b.y);
+  ctx.lineTo(b.x - s * ux + s * .45 * uy, b.y - s * uy - s * .45 * ux);
+  ctx.lineTo(b.x - s * ux - s * .45 * uy, b.y - s * uy + s * .45 * ux);
+  ctx.closePath(); ctx.fill();
+}
+
+const HATCH = (() => {
+  const c = document.createElement('canvas'); c.width = c.height = 8;
+  const g = c.getContext('2d'); g.strokeStyle = '#aaa';
+  g.beginPath(); g.moveTo(0, 8); g.lineTo(8, 0); g.moveTo(-2, 2); g.lineTo(2, -2);
+  g.moveTo(6, 10); g.lineTo(10, 6); g.stroke(); return c;
+})();
+
+function draw() {
+  if (!S.tree || !CS) return;
+  const dpr = devicePixelRatio || 1;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, CS, CS);
+  const hatch = ctx.createPattern(HATCH, 'repeat');
+  ctx.lineWidth = 1;
+
+  for (const c of cells()) {
+    const [x, y, w, h] = pxOf(c.code);
+    const f = followOf(c);                                 // absolute scale: MAX_HITS -> black
+    if (f) { ctx.fillStyle = `rgba(0,0,0,${.05 + .95 * Math.min(1, f / MAX_HITS)})`;
+             ctx.fillRect(x, y, w, h); }
+    if (c.dead) { ctx.fillStyle = hatch; ctx.fillRect(x, y, w, h); }
+    ctx.strokeStyle = '#ccc'; ctx.strokeRect(x + .5, y + .5, w - 1, h - 1);
+  }
+  ctx.strokeStyle = '#000';                                // depth-6 skeleton on top
+  for (const n of S.tree.nodes) if (n.depth === START) {
+    const [x, y, w, h] = pxOf(n.code); ctx.strokeRect(x + .5, y + .5, w - 1, h - 1);
+  }
+  for (const p of S.prefixes) {                            // queried clusters
+    const [x, y, w, h] = pxOf(p);
+    ctx.strokeStyle = '#e02000'; ctx.lineWidth = 3;
+    ctx.strokeRect(x + 1.5, y + 1.5, w - 3, h - 3); ctx.lineWidth = 1;
+  }
+  if (S.prefixes.length > 1) {                             // arrows connect the sequence in order
+    ctx.strokeStyle = ctx.fillStyle = '#e02000'; ctx.lineWidth = 2;
+    const ctr = S.prefixes.map(p => { const [x, y, w, h] = pxOf(p);
+                                      return { x: x + w / 2, y: y + h / 2 }; });
+    for (let i = 1; i < ctr.length; i++)                   // same cluster twice: nothing to draw
+      if (S.prefixes[i - 1] !== S.prefixes[i]) arrow(ctr[i - 1], ctr[i]);
+    ctx.lineWidth = 1;
+  }
+  if (S.hover) {
+    const [x, y, w, h] = pxOf(S.hover.code);
+    ctx.fillStyle = 'rgba(255,230,0,.35)'; ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = '#c7ab00'; ctx.lineWidth = 2; ctx.strokeRect(x + 1, y + 1, w - 2, h - 2);
+    ctx.lineWidth = 1;
+  }
+}
+
+function resize() {
+  const b = $('canvaswrap').getBoundingClientRect();
+  CS = Math.max(80, Math.floor(Math.min(b.width, b.height)) - 8);
+  const dpr = devicePixelRatio || 1;
+  cv.style.width = cv.style.height = CS + 'px';
+  cv.width = cv.height = CS * dpr;
+  draw();
+}
+new ResizeObserver(resize).observe($('canvaswrap'));
+
+cv.onmousemove = e => {
+  if (!S.tree) return;
+  const b = cv.getBoundingClientRect();
+  const ux = (e.clientX - b.left) / b.width, uy = 1 - (e.clientY - b.top) / b.height;
+  const c = cells().find(c => { const r = rectOf(c.code);
+    return ux >= r.x && ux < r.x + r.w && uy >= r.y && uy < r.y + r.h; }) || null;
+  if (c !== S.hover) {
+    S.hover = c; draw();
+    $('hoverinfo').textContent = c
+      ? `${c.code} · depth ${c.depth}` + (lastRes ? ` · next ×${followOf(c)}` : '') : '\u00a0';
+  }
+};
+cv.onmouseleave = () => { if (!S.tree) return; S.hover = null; draw(); $('hoverinfo').textContent = '\u00a0'; };
+cv.onclick = () => { if (S.hover) setPrefixes([...S.prefixes, S.hover.code]); };
+
+/* ================= search + rhs ================= */
+let lastRes = null;
+
+function update() {                                        // single door: runs on every sequence change
+  $('clist').innerHTML = S.prefixes.map((p, i) =>
+    `<span class="chip">${p}<a data-i="${i}" title="remove">×</a></span>`).join('');
+  $('q').placeholder = S.prefixes.length ? '' : '010110 0010000101';
+  $('copy').hidden = !S.prefixes.length;
+  lastRes = S.prefixes.length ? search(S.prefixes) : null; // search first: draw() shades follow-ups
+  draw();
+  if (lastRes) renderHits(lastRes); else $('rbody').innerHTML = '';
+}
+const setPrefixes = a => { S.prefixes = a; update(); };
+
+$('chips').onclick = e => {
+  const i = e.target.dataset.i;
+  if (i !== undefined) setPrefixes(S.prefixes.filter((_, j) => j !== +i));
+  else $('q').focus();
+};
+$('q').onkeydown = e => {                                  // input only ever appends to the sequence
+  if (e.key !== 'Enter') return;
+  const raw = $('q').value.trim().split(/\s+/).filter(Boolean);
+  const bad = raw.some(p => p.length < START || p.length > END || !/^[01]+$/.test(p));
+  $('q').classList.toggle('err', bad);
+  if (bad || !raw.length) return;
+  $('q').value = '';
+  setPrefixes([...S.prefixes, ...raw]);
+};
+$('q').oninput = () => $('q').classList.remove('err');
+const COPYSVG = $('copy').innerHTML;
+const CHECKSVG = '<svg viewBox="0 0 16 16"><path d="M2.5 8.5 6.5 12.5 13.5 3.5" fill="none" stroke="#000" stroke-width="2"/></svg>';
+$('copy').onclick = e => {
+  e.stopPropagation();                                     // keep #chips from stealing focus to #q
+  navigator.clipboard.writeText(S.prefixes.join(' '));
+  $('copy').innerHTML = CHECKSVG;
+  setTimeout(() => { $('copy').innerHTML = COPYSVG; }, 900);
+};
+
+const ttip = $('ttip');
+let tEl = null, tTm = null;
+const tipOff = () => { clearTimeout(tTm); tEl = null; ttip.style.display = 'none'; };
+const tipOn = (el, ok) => {
+  ttip.innerHTML = el.dataset.code + `<span class="cpy">${ok ? CHECKSVG : COPYSVG}</span>`;
+  ttip.style.display = 'flex';
+  const r = el.getBoundingClientRect(), w = ttip.offsetWidth, h = ttip.offsetHeight;
+  ttip.style.left = Math.max(4, Math.min(r.left + (r.width - w) / 2, innerWidth - w - 4)) + 'px';
+  ttip.style.top = (r.top > h + 8 ? r.top - h - 6 : r.bottom + 6) + 'px';
+};
+$('rbody').addEventListener('mouseover', e => {
+  const t = e.target.closest('.dtok[data-code]');
+  if (!t || t === tEl) return;
+  clearTimeout(tTm); ttip.style.display = 'none'; tEl = t;
+  tTm = setTimeout(() => tipOn(t), 1000);
+});
+$('rbody').addEventListener('mouseout', e => {
+  if (!tEl || tEl.contains(e.relatedTarget)) return;
+  if (e.target.closest('.dtok[data-code]') !== tEl) return;
+  tipOff();
+});
+$('rbody').addEventListener('scroll', tipOff, { passive: true });
+
+const ICO = {                                               // boxed ↗↙ : out = expand, in = collapse
+  expand: '<svg viewBox="0 0 16 16"><rect width="16" height="16" rx="3" fill="#000"/>' +
+    '<path d="M9 3.5h3.5V7M12.5 3.5 9 7M7 12.5H3.5V9M3.5 12.5 7 9" fill="none" stroke="#fff" stroke-width="1.4" stroke-linecap="square"/></svg>',
+  collapse: '<svg viewBox="0 0 16 16"><rect x="1" y="1" width="14" height="14" rx="2.5" fill="#fff" stroke="#000" stroke-width="1.4"/>' +
+    '<path d="M12.5 7H9V3.5M9 7l3.5-3.5M3.5 9H7v3.5M7 9 3.5 12.5" fill="none" stroke="#000" stroke-width="1.4" stroke-linecap="square"/></svg>',
+};
+const tokSpan = (t, pos, s, e) =>
+  `<span class="dtok${pos >= s && pos <= e ? ' mark' : ''}${t.code ? '' : ' nul'}"` +
+  (t.code ? ` data-code="${t.code}"` : '') + `>` + esc(t.text) + `</span>`;
+const snipHTML = (toks, first, s, e) =>                    // first = doc position of toks[0]
+  (first > 1 ? '\u2026 ' : '') + toks.map((t, i) => tokSpan(t, first + i, s, e)).join('') +
+  (first + toks.length < SEQ ? ' \u2026' : '');
+
+function renderHits(res) {
+  tipOff();
+  $('rbody').innerHTML =
+    `<div class="rhead">top ${res.hits.length} of ${res.total.toLocaleString()} matches \u00b7 ranked by similarity</div>` +
+    res.hits.map((h, i) =>
+    `<div class="hit" data-i="${i}"><div class="meta">` +
+    `<span class="docid">doc ${h.doc_id}</span><span>pos ${h.start}\u2013${h.end}</span>` +
+    `<span class="sim">sim ${h.score.toFixed(3)}</span>` +
+    `<a class="xp" title="expand">${ICO.expand}</a></div>` +
+    `<div class="codes">` + S.prefixes.map((p, j) => {
+      const c = h.tokens[h.start - h.ctx_start + j].code;
+      return `<b>${c.slice(0, p.length)}</b>${c.slice(p.length)}`;
+    }).join(' ') + `</div>` +
+    `<div class="snip">${snipHTML(h.tokens, h.ctx_start, h.start, h.end)}</div></div>`).join('');
+  $('rbody').scrollTop = 0;
+}
+
+$('rbody').addEventListener('click', e => {
+  const tok = e.target.closest('.dtok[data-code]');
+  if (tok) {
+    navigator.clipboard.writeText(tok.dataset.code);
+    clearTimeout(tTm); tEl = tok; tipOn(tok, true);
+    setTimeout(() => { if (tEl === tok) tipOn(tok, false); }, 900);
+    return;
+  }
+  const t = e.target.closest('.xp');
+  if (!t) return;                                          // pin hit header; body grows below
+  const el = t.closest('.hit'), h = lastRes.hits[+el.dataset.i], sn = el.querySelector('.snip');
+  const open = t.title === 'expand';
+  t.title = open ? 'collapse' : 'expand';
+  t.innerHTML = ICO[open ? 'collapse' : 'expand'];
+  const html = open ? snipHTML(doc(h.doc_id).tokens, 0, h.start, h.end)
+                    : snipHTML(h.tokens, h.ctx_start, h.start, h.end);
+  tipOff();
+  const y = el.getBoundingClientRect().top;
+  sn.innerHTML = html;
+  $('rbody').scrollTop += el.getBoundingClientRect().top - y;
+});
+
+/* ================= init ================= */
+(async () => {
+  $('hoverinfo').textContent = 'booting\u2026';
+  try {
+    await loadData();
+    S.tree = buildTree();
+  } catch (e) {
+    $('hoverinfo').textContent = `boot failed: ${e.message || e} \u2014 regenerate data.js (python export_static.py) and reload`;
+    $('hoverinfo').style.color = '#e02000';
+    return;
+  } finally {
+    $('boot').remove();
+  }
+  $('hoverinfo').textContent = '\u00a0';
+  $('q').disabled = false;
+  const bar = $('depths');
+  for (let d = START; d <= END; d++) {
+    const b = document.createElement('button');
+    b.className = 'dbtn' + (d === S.depth ? ' on' : ''); b.textContent = d;
+    b.onclick = () => { S.depth = d;
+      [...bar.children].forEach(x => x.classList.toggle('on', +x.textContent === d));
+      draw(); };
+    bar.appendChild(b);
+  }
+  update();
+  resize();
+})();
+</script>
+</body>
+</html>
