@@ -13,8 +13,6 @@
 
   header { display:flex; align-items:baseline; gap:14px; padding:6px 14px; background:#000; color:#fff }
   header h1 { font-size:16px; letter-spacing:2px }
-  #mockbadge { margin-left:auto; background:#ffe600; color:#000; border:2px solid #fff;
-               padding:0 8px; font-weight:700; font-size:12px }
 
   main { flex:1; display:flex; min-height:0 }
   #lhs { flex:3; min-width:0; display:flex; flex-direction:column; border-right:2px solid #000 }
@@ -31,6 +29,7 @@
                   padding:0 24px; font:700 15px ui-monospace, monospace; letter-spacing:1px }
   #qform button:hover { background:#000; color:#fff }
   #qform button:active { background:#ffe600; color:#000 }
+  #qform :disabled { opacity:.35; cursor:default }
 
   /* ---- bottom quadrant: map ---- */
   #mapbox { flex:1; min-height:0; display:flex; flex-direction:column }
@@ -44,6 +43,7 @@
 
   /* ---- rhs: hits ---- */
   #rbody { flex:1; overflow-y:auto }
+  .rhead { padding:8px 12px; font-size:12px; color:#555; border-bottom:2px solid #000 }
   .hit { padding:10px 12px; border-bottom:1px solid #ccc }
   .hit .meta { display:flex; align-items:center; gap:10px; font-size:12px; margin-bottom:2px }
   .docid { font-weight:700 }
@@ -61,16 +61,15 @@
 
 <header>
   <h1>MOTIO</h1>
-  <span id="mockbadge">MOCK DATA</span>
 </header>
 
 <main>
   <section id="lhs">
     <div id="query">
       <form id="qform">
-        <input id="q" placeholder="010110 0010000101" autocomplete="off" spellcheck="false">
-        <button type="submit">SEARCH</button>
-        <button type="button" id="reset">RESET</button>
+        <input id="q" placeholder="010110 0010000101" autocomplete="off" spellcheck="false" disabled>
+        <button type="submit" disabled>SEARCH</button>
+        <button type="button" id="reset" disabled>RESET</button>
       </form>
     </div>
     <div id="mapbox">
@@ -85,84 +84,75 @@
   </aside>
 </main>
 
+<script src="data.js"></script>
 <script>
 'use strict';
-const MOCK = true;                          // flip to false to attach server.py
-const START = 6, END = 10, SEQ = 512, W = SEQ - 1, N_DOCS = 200, MAX_HITS = 200, CTX = 25;
+const START = 6, END = 11, SEQ = 512, MAX_HITS = 200, CTX = 25;
 const $ = id => document.getElementById(id);
-const fmt = v => v.toString(2).padStart(END, '0');
 const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
 
-/* ================= mock data ================= */
-function mulberry32(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0;
-  let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
-  return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+/* ================= data (from data.js) ================= */
+const D = {};                                              // vocab, N, tid (N*512), leaf (N*511)
 
-const VOCAB = (' the, of, and, in, to, a, is, was, for, on, as, with, by, at, from, that, it, an,' +
-  ' be, are, were, this, which, or, had, has, its, but, not, their, one, two, first, new, more,' +
-  ' also, into, after, time, year, city, world, war, state, national, university, government,' +
-  ' president, century, north, south, music, film, series, game, team, season, league, school,' +
-  ' river, island, king, family, house, group, company, party, member, several, known, called,' +
-  ' made, used, found, became, began, following, during, between, under, through, early, later,' +
-  ' part, name, small, large, work, life, area, population, history, second, number, system,' +
-  ' based, built, played, released, published, won, held, born, The, In, A, He, She, It, John,' +
-  ' London, England, American, British, French, German, 1999, 2020, 18, 19').split(',')
-  .concat(['.', ',', "'s", ' (', ')', ':', ';']);
-
-const CODES = new Uint16Array(N_DOCS * W), TEXTID = new Uint16Array(N_DOCS * SEQ);
-{
-  const r = mulberry32(42);
-  const HOT = [...Array(8)].map(() => r() * 128 | 0);      // 7-bit hot prefixes -> visible blobs
-  for (let i = 0; i < CODES.length; i++)
-    CODES[i] = r() < .4 ? (HOT[r() * 8 | 0] << 3) | (r() * 8 | 0) : r() * 1024 | 0;
-  for (let i = 0; i < TEXTID.length; i++) TEXTID[i] = r() * VOCAB.length | 0;
+async function loadData() {
+  if (!window.MOTIO_B64) throw new Error('data.js not found');
+  const raw = Uint8Array.from(atob(window.MOTIO_B64), c => c.charCodeAt(0));
+  const buf = await new Response(new Response(raw).body
+    .pipeThrough(new DecompressionStream('gzip'))).arrayBuffer();
+  const [vlen, n] = new Uint32Array(buf, 0, 2);
+  D.vocab = JSON.parse(new TextDecoder().decode(new Uint8Array(buf, 8, vlen)));
+  D.N = n;
+  D.tid = new Uint32Array(buf, 8 + vlen, n * SEQ);
+  D.leaf = new Uint16Array(buf, 8 + vlen + n * SEQ * 4, n * (SEQ - 1));
 }
 
-function mockTree() {
-  const r = mulberry32(7), nodes = [];
-  const walk = (code, parent) => {
-    const d = code.length, alive = d < END && r() > .08;
-    nodes.push({ code, depth: d, parent, children: alive ? [code + '0', code + '1'] : [],
-                 dead: d < END && !alive });
-    if (alive) { walk(code + '0', code); walk(code + '1', code); }
+const codeStr = c => c.toString(2).padStart(END, '0');
+const toks = (d, ws, we) => Array.from({ length: we - ws + 1 }, (_, i) => {
+  const p = ws + i;
+  return { text: D.vocab[D.tid[d * SEQ + p]],
+           code: p ? codeStr(D.leaf[d * (SEQ - 1) + p - 1]) : null };
+});
+const doc = i => ({ tokens: toks(i, 0, SEQ - 1) });
+
+function buildTree() {                                     // port of server build_tree
+  const seen = new Uint8Array(1 << END);
+  for (let i = 0; i < D.leaf.length; i++) seen[D.leaf[i]] = 1;
+  const depth = {};                                        // depth -> set of int codes
+  for (let d = START; d <= END; d++) {
+    depth[d] = new Set();
+    for (let c = 0; c < seen.length; c++) if (seen[c]) depth[d].add(c >> (END - d));
+  }
+  const nodes = [];
+  const walk = code => {
+    const d = code.length, kids = [code + '0', code + '1'];
+    const alive = d < END && kids.every(k => depth[d + 1].has(parseInt(k, 2)));
+    nodes.push({ code, depth: d, dead: d < END && !alive });
+    if (alive) kids.forEach(walk);
   };
-  for (let c = 0; c < 64; c++) walk(c.toString(2).padStart(6, '0'), null);
-  return { start: START, end: END, nodes };
+  [...depth[START]].sort((a, b) => a - b).forEach(c => walk(c.toString(2).padStart(START, '0')));
+  return { nodes };
 }
 
-function mockSearch(prefixes) {                            // same semantics as server.search
-  const m = prefixes.length, vals = prefixes.map(p => parseInt(p, 2)),
-        sh = prefixes.map(p => END - p.length);
-  const hits = []; let total = 0;
-  for (let d = 0; d < N_DOCS; d++) for (let c = 0; c + m <= W; c++) {
-    let ok = true;
-    for (let j = 0; j < m; j++) if (CODES[d * W + c + j] >> sh[j] !== vals[j]) { ok = false; break; }
-    if (!ok) continue;
-    total++;
-    if (hits.length < MAX_HITS) {
-      const s = c + 1, e = c + m, ws = Math.max(1, s - CTX), we = Math.min(SEQ - 1, e + CTX);
-      hits.push({ doc_id: d, start: s, end: e, ctx_start: ws,
-        tokens: [...Array(we - ws + 1)].map((_, k) => { const p = ws + k;
-          return { text: VOCAB[TEXTID[d * SEQ + p]], code: fmt(CODES[d * W + p - 1]),
-                   match: p >= s && p <= e }; }) });
+function search(prefixes) {                                // port of server search
+  const W = SEQ - 1, m = prefixes.length, hits = [];
+  const sh = prefixes.map(p => END - p.length), val = prefixes.map(p => parseInt(p, 2));
+  let total = 0;
+  for (let d = 0; d < D.N; d++) {
+    const row = d * W;
+    for (let c = 0; c + m <= W; c++) {
+      let j = 0;
+      while (j < m && (D.leaf[row + c + j] >> sh[j]) === val[j]) j++;
+      if (j < m) continue;
+      total++;
+      if (hits.length < MAX_HITS) {
+        const start = c + 1, end = c + m;
+        const ws = Math.max(1, start - CTX), we = Math.min(SEQ - 1, end + CTX);
+        hits.push({ doc_id: d, start, end, ctx_start: ws, tokens: toks(d, ws, we) });
+      }
     }
   }
   return { total, hits };
 }
-
-function mockDoc(i) {
-  return { doc_id: i, tokens: [...Array(SEQ)].map((_, p) =>
-    ({ text: VOCAB[TEXTID[i * SEQ + p]], code: p ? fmt(CODES[i * W + p - 1]) : null })) };
-}
-
-/* ================= api (mock <-> server) ================= */
-const api = {
-  tree:   async ()  => MOCK ? mockTree()   : (await fetch('/tree')).json(),
-  search: async p   => MOCK ? mockSearch(p) : (await fetch('/search', { method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ prefixes: p }) })).json(),
-  doc:    async i   => MOCK ? mockDoc(i)   : (await fetch('/docs/' + i)).json(),
-};
 
 /* ================= map ================= */
 const S = { tree: null, depth: START, prefixes: [], hover: null };
@@ -185,8 +175,7 @@ const cells = () => S.tree.nodes.filter(n => n.depth === S.depth || (n.dead && n
 
 function arrow(a, b) {
   const dx = b.x - a.x, dy = b.y - a.y, L = Math.hypot(dx, dy);
-  if (L < 8) return;                                       // repeated cell: nothing to draw
-  const ux = dx / L, uy = dy / L, s = 7;
+  const ux = dx / L, uy = dy / L, s = Math.min(7, L * .6); // clamp head so short arrows don't overshoot
   ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x - s * ux, b.y - s * uy); ctx.stroke();
   ctx.beginPath(); ctx.moveTo(b.x, b.y);
   ctx.lineTo(b.x - s * ux + s * .45 * uy, b.y - s * uy - s * .45 * ux);
@@ -227,7 +216,8 @@ function draw() {
     ctx.strokeStyle = ctx.fillStyle = '#e02000'; ctx.lineWidth = 2;
     const ctr = S.prefixes.map(p => { const [x, y, w, h] = pxOf(p);
                                       return { x: x + w / 2, y: y + h / 2 }; });
-    for (let i = 1; i < ctr.length; i++) arrow(ctr[i - 1], ctr[i]);
+    for (let i = 1; i < ctr.length; i++)                   // same cluster twice: nothing to draw
+      if (S.prefixes[i - 1] !== S.prefixes[i]) arrow(ctr[i - 1], ctr[i]);
     ctx.lineWidth = 1;
   }
   if (S.hover) {
@@ -249,6 +239,7 @@ function resize() {
 new ResizeObserver(resize).observe($('canvaswrap'));
 
 cv.onmousemove = e => {
+  if (!S.tree) return;
   const b = cv.getBoundingClientRect();
   const ux = (e.clientX - b.left) / b.width, uy = 1 - (e.clientY - b.top) / b.height;
   const c = cells().find(c => { const r = rectOf(c.code);
@@ -259,7 +250,7 @@ cv.onmousemove = e => {
       ? `${c.code} · depth ${c.depth}` : '\u00a0';
   }
 };
-cv.onmouseleave = () => { S.hover = null; draw(); $('hoverinfo').textContent = '\u00a0'; };
+cv.onmouseleave = () => { if (!S.tree) return; S.hover = null; draw(); $('hoverinfo').textContent = '\u00a0'; };
 cv.onmousedown = e => e.preventDefault();                  // keep #q focused; blur resets scrollLeft
 cv.onclick = () => {                                       // click cells to build the sequence
   if (!S.hover) return;
@@ -273,13 +264,12 @@ cv.onclick = () => {                                       // click cells to bui
 /* ================= search + rhs ================= */
 let lastRes = null;
 
-async function runSearch() {
+function runSearch() {
   const q = $('q'), raw = q.value.trim().split(/\s+/).filter(Boolean);
-  const bad = !raw.length || raw.some(p => !/^[01]{6,10}$/.test(p));
+  const bad = !raw.length || raw.some(p => p.length < START || p.length > END || !/^[01]+$/.test(p));
   q.classList.toggle('err', bad);
-  if (bad) return;
-  const res = await api.search(raw);
-  if (res.error) { q.classList.add('err'); return; }
+  if (bad) { S.prefixes = []; lastRes = null; $('rbody').innerHTML = ''; draw(); return; }
+  const res = search(raw);
   S.prefixes = raw;
   draw();
   lastRes = res;
@@ -300,7 +290,9 @@ const snipHTML = (toks, first, s, e) =>                    // first = doc positi
   (first + toks.length < SEQ ? ' \u2026' : '');
 
 function renderHits(res) {
-  $('rbody').innerHTML = res.hits.map((h, i) =>
+  $('rbody').innerHTML =
+    `<div class="rhead">showing ${res.hits.length} of ${res.total.toLocaleString()} matches</div>` +
+    res.hits.map((h, i) =>
     `<div class="hit" data-i="${i}"><div class="meta">` +
     `<span class="docid">doc ${h.doc_id}</span><span>pos ${h.start}\u2013${h.end}</span>` +
     `<a class="xp" title="expand">${ICO.expand}</a></div>` +
@@ -312,14 +304,14 @@ function renderHits(res) {
   $('rbody').scrollTop = 0;
 }
 
-$('rbody').addEventListener('click', async e => {
+$('rbody').addEventListener('click', e => {
   const t = e.target.closest('.xp');
   if (!t) return;                                          // pin hit header; body grows below
   const el = t.closest('.hit'), h = lastRes.hits[+el.dataset.i], sn = el.querySelector('.snip');
   const open = t.title === 'expand';
   t.title = open ? 'collapse' : 'expand';
   t.innerHTML = ICO[open ? 'collapse' : 'expand'];
-  const html = open ? snipHTML((await api.doc(h.doc_id)).tokens, 0, h.start, h.end)
+  const html = open ? snipHTML(doc(h.doc_id).tokens, 0, h.start, h.end)
                     : snipHTML(h.tokens, h.ctx_start, h.start, h.end);
   const y = el.getBoundingClientRect().top;
   sn.innerHTML = html;
@@ -335,8 +327,17 @@ $('reset').onclick = () => {
   $('rbody').innerHTML = '';
 };
 (async () => {
-  S.tree = await api.tree();
-  $('mockbadge').style.display = MOCK ? '' : 'none';
+  $('hoverinfo').textContent = 'booting\u2026';
+  try {
+    await loadData();
+    S.tree = buildTree();
+  } catch (e) {
+    $('hoverinfo').textContent = `boot failed: ${e.message || e} \u2014 regenerate data.js (python export_static.py) and reload`;
+    $('hoverinfo').style.color = '#e02000';
+    return;
+  }
+  for (const el of $('qform').elements) el.disabled = false;
+  $('hoverinfo').textContent = '\u00a0';
   const bar = $('depths');
   for (let d = START; d <= END; d++) {
     const b = document.createElement('button');
