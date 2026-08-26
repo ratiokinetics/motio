@@ -13,7 +13,7 @@ python train.py
 ### Interface
 
 ```
-cd fronted
+cd docs
 python export_static.py   # packs run artifacts into data.js - tune hyperparameters 
 open index.html       # fully static — no server
 ```
