@@ -13,6 +13,8 @@
 
   header { display:flex; align-items:baseline; gap:14px; padding:6px 14px; background:#000; color:#fff }
   header h1 { font-size:16px; letter-spacing:2px }
+  header a { margin-left:auto; color:#fff; text-decoration:none; border-bottom:1px dotted #fff }
+  header a:hover { color:#ffe600; border-color:#ffe600 }
 
   /* ---- boot overlay ---- */
   #boot { position:fixed; inset:0; z-index:9; background:#fff;
@@ -67,6 +69,11 @@
 
   /* ---- rhs: hits ---- */
   #rbody { flex:1; overflow-y:auto }
+  #about { flex:1; overflow-y:auto; padding:48px; background:#f3f2ee }
+  #about.off, #rbody.off { display:none }
+  #about .kicker { margin-bottom:24px; color:#777; letter-spacing:2px }
+  #about .lead { margin-bottom:24px; font-size:17px; line-height:1.7; text-align:justify }
+  #about a { color:inherit; text-decoration-style:dotted }
   .rhead { padding:8px 12px; font-size:12px; color:#555; border-bottom:2px solid #000 }
   .hit { padding:10px 12px; border-bottom:1px solid #ccc }
   .hit .meta { display:flex; align-items:center; gap:10px; font-size:12px; margin-bottom:2px }
@@ -93,6 +100,7 @@
 
 <header>
   <h1>MOTIO</h1>
+  <a id="discover" href="#discover" aria-expanded="false">discover more →</a>
 </header>
 
 <main>
@@ -124,6 +132,13 @@
 
   <aside id="rhs">
     <div id="rbody"></div>
+    <section id="about" class="off">
+      <p class="lead">Motio is a language that describes the motion of an LLM's internal representations. The language is expressed as a sequence of codes, each corresponding to an activation cluster. Within each code, the first six bits identify one of the 2⁶ = 64 clusters at the initial level. Each subsequent bit identifies one side of the binary partition applied to the cluster selected at the preceding level.</p>
+      <p class="lead">Each cell in the grid corresponds to a cluster. You can move vertically by increasing or decreasing the granularity of the clustering, or horizontally by chaining codes together to form sequences.</p>
+      <p class="lead">The right-hand side shows the matches. Given a query sequence of <i>n</i> codes, a match is found whenever a document contains <i>n</i> consecutive tokens whose activations fall into the queried sequence of clusters.</p>
+      <p class="lead">Given a sequence of <i>n</i> codes, the colour of each candidate (<i>n+1</i>)-th cell shows the number of matches obtained by appending that cell's code to the sequence. The darker the cell, the more matches it produces.</p>
+      <p class="lead">For further technical details, please check the <a href="https://github.com/ratiokinetics/motio/" target="_blank" rel="noopener">codebase</a>.</p>
+    </section>
   </aside>
 </main>
 <div id="ttip"></div>
@@ -133,6 +148,13 @@
 const START = 6, END = 11, SEQ = 512, MAX_HITS = 200;
 const $ = id => document.getElementById(id);
 const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+const showAbout = on => {
+  $('about').classList.toggle('off', !on);
+  $('rbody').classList.toggle('off', on);
+  $('discover').textContent = on ? 'discover less ←' : 'discover more →';
+  $('discover').setAttribute('aria-expanded', on);
+};
+$('discover').onclick = e => { e.preventDefault(); showAbout($('about').classList.contains('off')); };
 const api = {
   tree:   ()       => fetch('/tree').then(r => r.json()),
   search: p        => fetch('/search', { method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -372,6 +394,7 @@ const snipHTML = (toks, first, s, e) =>                    // first = doc positi
 
 function renderHits(res) {
   tipOff();
+  showAbout(false);
   $('rbody').innerHTML =
     `<div class="rhead">top ${res.hits.length} of ${res.total.toLocaleString()} matches \u00b7 ranked by similarity</div>` +
     res.hits.map((h, i) =>
