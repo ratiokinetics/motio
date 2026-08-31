@@ -29,3 +29,9 @@ Requires:
 export OPENROUTER_API_KEY=...
 python eval.py
 ```
+
+### Steer
+
+```
+python steer.py <doc_id> <tok_id> <cluster_id>
+```
