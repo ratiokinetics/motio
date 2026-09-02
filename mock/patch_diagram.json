@@ -1,0 +1,6 @@
+{
+  "prompt": "After the acquisition closed, the company <<was>>",
+  "cluster": {"code": "011011", "label": "inaugurative verb"},
+  "untouched": "finally able to focus on its core business again, and the new owners kept most of the staff.",
+  "patched": "in 2012 with backing from two Milan investors, and quickly grew into a regional supplier."
+}

@@ -21,7 +21,7 @@ OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 # Motio hyperparams
 START, END = 6, 11
-MOTIO_CONFIGS = [(level, seq_len) for level in (10, 11) for seq_len in (1, 2, 3, 4)]
+MOTIO_CONFIGS = [(level, seq_len) for level in (7, 8) for seq_len in (1, 2)]
 CONTEXT_RADIUS = 25
 
 # SAE hyperparams

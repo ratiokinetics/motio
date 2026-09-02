@@ -1,0 +1,21 @@
+{
+  "pixels": [
+    {"code": "000111", "label": "was"},
+    {"code": "011011", "label": "inaugurative verb"},
+    {"code": "111100", "label": "in"}
+  ],
+  "sequences": [
+    {
+      "codes": ["000111"],
+      "examples": ["it <<was>> later", "<<were>> able to", "there <<wasn't>> time", "<<was the>> first", "<<was a>> child", "<<was an>> error"]
+    },
+    {
+      "codes": ["011011"],
+      "examples": ["<<launched>> in 2012", "the firm <<founded>> it", "<<released>> a patch", "<<announced>> today"]
+    },
+    {
+      "codes": ["111100"],
+      "examples": ["born <<in>> 1984", "<<in the>> city", "<<in a>> letter"]
+    }
+  ]
+}

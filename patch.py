@@ -1,4 +1,4 @@
-"""Steer: replace block-20 activation at (doc, pos) with a cluster centroid; compare continuations."""
+"""Patch: replace block-20 activation at (doc, pos) with a cluster centroid; compare continuations."""
 import argparse
 from pathlib import Path
 import numpy as np
@@ -28,10 +28,10 @@ model = AutoModelForCausalLM.from_pretrained(MODEL, torch_dtype=torch.bfloat16).
 MU = torch.tensor(mu, device=DEVICE)
 CDIR = torch.tensor(c / np.linalg.norm(c), device=DEVICE)
 
-steer = False
+patch = False
 def hook(_, __, out):
     h = out[0] if isinstance(out, tuple) else out
-    if steer and h.shape[1] > 1:  # prefill only; steered KV persists through decoding
+    if patch and h.shape[1] > 1:  # prefill only; patched KV persists through decoding
         v = h[0, args.pos].float()
         h[0, args.pos] = (MU + (v - MU).norm() * CDIR).to(h.dtype)  # keep norm, swap direction
 
@@ -44,5 +44,5 @@ def continuation():
 
 print(f"prompt: {tok.decode(ids[0])!r}")
 print("\n=== baseline ===", continuation(), sep="\n")
-steer = True
-print("\n=== steered ===", continuation(), sep="\n")
+patch = True
+print("\n=== patched ===", continuation(), sep="\n")

@@ -30,8 +30,15 @@ export OPENROUTER_API_KEY=...
 python eval.py
 ```
 
-### Steer
+### Patch
 
 ```
-python steer.py <doc_id> <tok_id> <cluster_id>
+python patch.py <doc> <pos> <cluster_id>
+```
+
+### Diagram
+
+```
+python diagram.py mock/diagram.json
+python patch_diagram.py mock/patch_diagram.json
 ```
