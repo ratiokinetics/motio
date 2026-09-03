@@ -39,10 +39,3 @@ python eval.py
 ```
 python patch.py <doc> <pos> <cluster_id>
 ```
-
-### Diagram
-
-```
-python diagram.py mock/diagram.json
-python patch_diagram.py mock/patch_diagram.json
-```
